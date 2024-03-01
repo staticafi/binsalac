@@ -946,7 +946,6 @@ void Compiler::compile_instruction_alloca(llvm::AllocaInst& llvm_instruction, sa
         {
             if (auto llvm_constant = llvm::dyn_cast<llvm::ConstantInt>(llvm_instruction.getOperand(0U)))
             {
-                std::int64_t index;
                 switch (llvm_constant->getValue().getBitWidth() / 8U)
                 {
                 case 1U:
