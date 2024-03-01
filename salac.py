@@ -11,24 +11,25 @@ class Salac:
 
         self.dist_dir = None
         self.tool_ext = None
-        for path in [
-                os.path.join(self.script_dir, "sala2sala.exe"),
-                os.path.join(self.script_dir, "sala2sala"),
-                os.path.join(self.script_dir, "..", "..", "dist", "sala2sala.exe"),
-                os.path.join(self.script_dir, "..", "..", "dist", "sala2sala"),
-                ]:
-            if os.path.isfile(path):
-                self.dist_dir = os.path.normpath(os.path.dirname(path))
-                self.tool_ext = os.path.splitext(self.dist_dir)[1]
-                break
-        if self.dist_dir is None:
-            raise Exception("Cannot find the Salac's binaries.")
+        self.detect_salac_binaries_in_dir(self.script_dir)
 
         self.input_path = None
         self.output_dir = os.path.abspath(os.getcwd())
         self.opt_level = 0
         self.options = []
         self.verbose = False
+
+    def detect_salac_binaries_in_dir(self, dir : str) -> bool:
+        if self.dist_dir is None:
+            for path in [
+                    os.path.join(dir, "sala2sala.exe"),
+                    os.path.join(dir, "sala2sala"),
+                    ]:
+                if os.path.isfile(path):
+                    self.dist_dir = os.path.normpath(os.path.dirname(path))
+                    self.tool_ext = os.path.splitext(dir)[1]
+                    return True
+        return False
 
     def log(self, message : str, brief_message: str = None, end='\n') -> None:
         if self.verbose:
@@ -140,6 +141,9 @@ class Salac:
             elif arg == "--output" and i+1 < len(sys.argv) and not os.path.isfile(sys.argv[i+1]):
                 self.output_dir = os.path.normpath(os.path.abspath(sys.argv[i+1]))
                 i += 1
+            elif arg == "--bin" and i+1 < len(sys.argv) and not os.path.isfile(sys.argv[i+1]):
+                self.detect_salac_binaries_in_dir(os.path.normpath(os.path.abspath(sys.argv[i+1])))
+                i += 1
             elif arg == "--opt" and i+1 < len(sys.argv) and sys.argv[i+1].isnumeric():
                 self.opt_level = min(2, max(0, int(sys.argv[i+1])))
                 i += 1
@@ -150,6 +154,8 @@ class Salac:
 
         if self.input_path is None:
             raise Exception("Cannot find the input file.")
+        if self.dist_dir is None:
+            raise Exception("Cannot find the Salac's binaries.")
 
         return self._run()
     
