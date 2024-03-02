@@ -7,8 +7,10 @@ add_subdirectory(./sala2sala)
     message("  sala2sala")
 
 if(DEFINED BINSALAC_INSTALL_DIR)
-    install(FILES
+    install(PROGRAMS
         "./salac.py"
+        DESTINATION "${BINSALAC_INSTALL_DIR}")
+    install(FILES
         "./README.md"
         "./LICENSE.txt"
         DESTINATION "${BINSALAC_INSTALL_DIR}")
