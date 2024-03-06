@@ -11,7 +11,7 @@
 //#   pragma comment(linker, "/SUBSYSTEM:windows /ENTRY:mainCRTStartup") 
 //#endif
 
-extern void run(int argc, char* argv[]);
+extern int run(int argc, char* argv[]);
 
 #if BUILD_RELEASE() == 1
 static void save_crash_report(std::string const& crash_message)
@@ -24,6 +24,7 @@ static void save_crash_report(std::string const& crash_message)
 
 int main(int argc, char* argv[])
 {
+    int retval = 0;
 #if BUILD_RELEASE() == 1
     try
 #endif
@@ -36,7 +37,7 @@ int main(int argc, char* argv[])
             std::cout << get_program_version() << "\n";
         else
         {
-            run(argc,argv);
+            retval = run(argc,argv);
             //TMPROF_PRINT_TO_FILE(get_program_name(),true);
         }
     }
@@ -52,5 +53,5 @@ int main(int argc, char* argv[])
         return -2;
     }
 #endif
-    return 0;
+    return retval;
 }

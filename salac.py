@@ -15,6 +15,7 @@ class Salac:
 
         self.input_path = None
         self.output_dir = os.path.abspath(os.getcwd())
+        self.entry_function = 'main'
         self.opt_level = 0
         self.options = []
         self.verbose = False
@@ -83,7 +84,8 @@ class Salac:
             if self._execute(
                     [ os.path.join(self.dist_dir, "llvm2sala" + self.tool_ext),
                         "--input", os.path.join(in_dir, in_name + in_ext),
-                        "--output", os.path.join(self.output_dir, in_name + ".raw.json")
+                        "--output", os.path.join(self.output_dir, in_name + ".raw.json"),
+                        "--entry", self.entry_function
                         ] + self.options,
                     None) is False:
                 raise Exception("Translation from LLVM to Sala has failed: " + os.path.join(in_dir, in_name + in_ext))
@@ -141,6 +143,9 @@ class Salac:
             elif arg == "--output" and i+1 < len(sys.argv) and not os.path.isfile(sys.argv[i+1]):
                 self.output_dir = os.path.normpath(os.path.abspath(sys.argv[i+1]))
                 i += 1
+            elif arg == "--entry" and i+1 < len(sys.argv) and not os.path.isfile(sys.argv[i+1]):
+                self.entry_function = sys.argv[i+1]
+                i += 1
             elif arg == "--bin" and i+1 < len(sys.argv) and not os.path.isfile(sys.argv[i+1]):
                 self.detect_salac_binaries_in_dir(os.path.normpath(os.path.abspath(sys.argv[i+1])))
                 i += 1
@@ -167,6 +172,8 @@ class Salac:
         print("input <PATH>         A pathname of a C/LLVM program to be compiled to Sala.")
         print("output <PATH>        An output directory. If not specified, then the current")
         print("                     directory is used.")
+        print("entry <name>         Allows to specify a custom entry function of the program.")
+        print("                     The default name is 'main'.")
         print("opt <0|1|2>          An optimization level for translation from C to Sala.")
         print("                     If not specified, then the level is 0.")
         print("verbose              When specified, the script prints information about the")
