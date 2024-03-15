@@ -917,13 +917,14 @@ void Compiler::compile_instruction_unreachable(llvm::UnreachableInst& llvm_instr
 
 void Compiler::compile_instruction_alloca(llvm::AllocaInst& llvm_instruction, sala::Instruction& sala_instruction)
 {
-    if (uses_stacksave()
+    if ((uses_stacksave()
              && (sala_instruction.basic_block()->index() != 0U ||
                  llvm_basic_block_contains_intrinsic_before_instruction(
                         llvm_instruction.getParent(),
                         llvm::Intrinsic::stacksave,
-                        &llvm_instruction))
-            )
+                        &llvm_instruction)))
+        || (llvm_instruction.getNumOperands() > 0U && !llvm::isa<llvm::ConstantInt>(llvm_instruction.getOperand(0U)))
+        )
     {
         sala_instruction.set_opcode(sala::Instruction::Opcode::ALLOCA);
         push_back_operand(sala_instruction, memory_object(&llvm_instruction));
@@ -944,27 +945,23 @@ void Compiler::compile_instruction_alloca(llvm::AllocaInst& llvm_instruction, sa
         std::uint64_t num_elements{ 1ULL };
         if (llvm_instruction.getNumOperands() > 0U)
         {
-            if (auto llvm_constant = llvm::dyn_cast<llvm::ConstantInt>(llvm_instruction.getOperand(0U)))
+            auto llvm_constant = llvm::dyn_cast<llvm::ConstantInt>(llvm_instruction.getOperand(0U));
+            switch (llvm_constant->getValue().getBitWidth() / 8U)
             {
-                switch (llvm_constant->getValue().getBitWidth() / 8U)
-                {
-                case 1U:
-                    num_elements = (std::uint64_t)*(std::int8_t const *)llvm_constant->getValue().getRawData();
-                    break;
-                case 2U:
-                    num_elements = (std::uint64_t)*(std::int16_t const *)llvm_constant->getValue().getRawData();
-                    break;
-                case 4U:
-                    num_elements = (std::uint64_t)*(std::int32_t const *)llvm_constant->getValue().getRawData();
-                    break;
-                case 8U:
-                    num_elements = *(std::uint64_t const *)llvm_constant->getValue().getRawData();
-                    break;
-                default: UNREACHABLE(); break;
-                }
+            case 1U:
+                num_elements = (std::uint64_t)*(std::int8_t const *)llvm_constant->getValue().getRawData();
+                break;
+            case 2U:
+                num_elements = (std::uint64_t)*(std::int16_t const *)llvm_constant->getValue().getRawData();
+                break;
+            case 4U:
+                num_elements = (std::uint64_t)*(std::int32_t const *)llvm_constant->getValue().getRawData();
+                break;
+            case 8U:
+                num_elements = *(std::uint64_t const *)llvm_constant->getValue().getRawData();
+                break;
+            default: UNREACHABLE(); break;
             }
-            else
-                NOT_IMPLEMENTED_YET();
         }
 
         var.set_num_bytes(num_elements * llvm_sizeof(llvm_instruction.getAllocatedType(), module()));
