@@ -455,22 +455,17 @@ void Compiler::run()
         }
     for (auto it = module().begin(); it != module().end(); ++it)
     {
+        std::string function_name{ it->getName().str() };
         if (it->isDeclaration())
         {
             bool do_register_function{ true };
             if (it->isIntrinsic())
                 switch (it->getIntrinsicID())
                 {
-                    case llvm::Intrinsic::dbg_declare:
-                    case llvm::Intrinsic::dbg_label:
-                    case llvm::Intrinsic::memcpy:
-                    case llvm::Intrinsic::memmove:
-                    case llvm::Intrinsic::memset:
-                    case llvm::Intrinsic::stacksave:
-                    case llvm::Intrinsic::stackrestore:
-                    case llvm::Intrinsic::vastart:
-                    case llvm::Intrinsic::vaend:
-                    case llvm::Intrinsic::fmuladd:
+                    case llvm::Intrinsic::fabs:
+                        function_name = it->getReturnType()->isFloatTy() ? "fabsf" : "fabs";
+                        break;
+                    default:
                         do_register_function = false;
                         break;
                 }
@@ -480,7 +475,7 @@ void Compiler::run()
             if (!do_register_function)
                 continue;
         }
-        register_function(&*it, program().push_back_function(it->getName().str()));
+        auto const mo{ register_function(&*it, program().push_back_function(function_name)) };
     }
 
     // Compile static objects
@@ -497,18 +492,16 @@ void Compiler::run()
             push_back_operand(sala_instruction, initializer_mo);
         }
     for (auto it = module().begin(); it != module().end(); ++it)
-        if (has_memory_object(&*it))
+        if (has_memory_object(&*it) && it->isDeclaration())
         {
-            if (it->isDeclaration())
-            {
-                auto& sala_function = program().function_ref(memory_object(*it).index);
-                compile_function_parameters(*it, sala_function);
-                sala_function.push_back_basic_block().push_back_instruction().set_opcode(sala::Instruction::Opcode::RET);
-                program().push_back_external_function(sala_function.index());
-            }
-            else
-                compile_function(*it, program().function_ref(memory_object(*it).index));
+            auto& sala_function = program().function_ref(memory_object(*it).index);
+            compile_function_parameters(*it, sala_function);
+            sala_function.push_back_basic_block().push_back_instruction().set_opcode(sala::Instruction::Opcode::RET);
+            program().push_back_external_function(sala_function.index());
         }
+    for (auto it = module().begin(); it != module().end(); ++it)
+        if (has_memory_object(&*it) && !it->isDeclaration())
+            compile_function(*it, program().function_ref(memory_object(*it).index));
 
     // Remove NOPs from static initializer
 
@@ -903,7 +896,7 @@ void Compiler::compile_instruction(llvm::Instruction& llvm_instruction, sala::In
         compile_instruction_vaarg(*llvm::dyn_cast<llvm::VAArgInst>(&llvm_instruction), sala_instruction);
         break;
     default:
-        // 'sala_instruction' will stay as the __INVALID__ instruction.
+        NOT_IMPLEMENTED_YET();
         break;
     }
 }
@@ -1514,34 +1507,58 @@ void Compiler::compile_instruction_cmp(llvm::CmpInst& llvm_instruction, sala::In
     switch (llvm_instruction.getPredicate())
     {
         case llvm::CmpInst::Predicate::FCMP_OEQ:
-        case llvm::CmpInst::Predicate::FCMP_UEQ:
             sala_instruction.set_opcode(sala::Instruction::Opcode::EQUAL);
             sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING);
             break;
         case llvm::CmpInst::Predicate::FCMP_OGT:
-        case llvm::CmpInst::Predicate::FCMP_UGT:
             sala_instruction.set_opcode(sala::Instruction::Opcode::GREATER);
             sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING);
             break;
         case llvm::CmpInst::Predicate::FCMP_OGE:
-        case llvm::CmpInst::Predicate::FCMP_UGE:
             sala_instruction.set_opcode(sala::Instruction::Opcode::GREATER_EQUAL);
             sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING);
             break;
         case llvm::CmpInst::Predicate::FCMP_OLT:
-        case llvm::CmpInst::Predicate::FCMP_ULT:
             sala_instruction.set_opcode(sala::Instruction::Opcode::LESS);
             sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING);
             break;
         case llvm::CmpInst::Predicate::FCMP_OLE:
-        case llvm::CmpInst::Predicate::FCMP_ULE:
             sala_instruction.set_opcode(sala::Instruction::Opcode::LESS_EQUAL);
             sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING);
             break;
         case llvm::CmpInst::Predicate::FCMP_ONE:
-        case llvm::CmpInst::Predicate::FCMP_UNE:
             sala_instruction.set_opcode(sala::Instruction::Opcode::UNEQUAL);
             sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING);
+            break;
+
+        case llvm::CmpInst::Predicate::FCMP_UEQ:
+            sala_instruction.set_opcode(sala::Instruction::Opcode::EQUAL);
+            sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING_UNORDERED);
+            break;
+        case llvm::CmpInst::Predicate::FCMP_UGT:
+            sala_instruction.set_opcode(sala::Instruction::Opcode::GREATER);
+            sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING_UNORDERED);
+            break;
+        case llvm::CmpInst::Predicate::FCMP_UGE:
+            sala_instruction.set_opcode(sala::Instruction::Opcode::GREATER_EQUAL);
+            sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING_UNORDERED);
+            break;
+        case llvm::CmpInst::Predicate::FCMP_ULT:
+            sala_instruction.set_opcode(sala::Instruction::Opcode::LESS);
+            sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING_UNORDERED);
+            break;
+        case llvm::CmpInst::Predicate::FCMP_ULE:
+            sala_instruction.set_opcode(sala::Instruction::Opcode::LESS_EQUAL);
+            sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING_UNORDERED);
+            break;
+        case llvm::CmpInst::Predicate::FCMP_UNE:
+            sala_instruction.set_opcode(sala::Instruction::Opcode::UNEQUAL);
+            sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING_UNORDERED);
+            break;
+
+        case llvm::CmpInst::Predicate::FCMP_UNO:
+            sala_instruction.set_opcode(sala::Instruction::Opcode::ISNAN);
+            sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING_UNORDERED);
             break;
 
         case llvm::CmpInst::Predicate::ICMP_EQ:
@@ -1585,7 +1602,9 @@ void Compiler::compile_instruction_cmp(llvm::CmpInst& llvm_instruction, sala::In
             sala_instruction.set_modifier(sala::Instruction::Modifier::SIGNED);
             break;
 
-        default: UNREACHABLE(); break;
+        default:
+            NOT_IMPLEMENTED_YET();
+            break;
     }
 }
 
@@ -1727,13 +1746,14 @@ void Compiler::compile_instruction_extractvalue(llvm::ExtractValueInst& llvm_ins
 
 void Compiler::compile_instruction_insertvalue(llvm::InsertValueInst& llvm_instruction, sala::Instruction& sala_instruction)
 {
-    // TODO!
+    NOT_IMPLEMENTED_YET();
 }
 
 
 void Compiler::compile_instruction_call(llvm::CallInst& llvm_instruction, sala::Instruction& sala_instruction)
 {
     auto const sala_instruction_back_mapping{ sala_instruction.source_back_mapping() };
+    auto opcode { sala::Instruction::Opcode::CALL };
 
     if (auto llvm_intrinsic = llvm::dyn_cast<llvm::IntrinsicInst>(&llvm_instruction))
     {
@@ -1746,7 +1766,7 @@ void Compiler::compile_instruction_call(llvm::CallInst& llvm_instruction, sala::
                 push_back_operand(sala_instruction, memory_object(llvm_intrinsic->getOperand(1)));
                 push_back_operand(sala_instruction, memory_object(llvm_intrinsic->getOperand(2)));
             }
-            break;
+            return;
         case llvm::Intrinsic::memmove:
             {
                 sala_instruction.set_opcode(sala::Instruction::Opcode::MEMMOVE);
@@ -1754,7 +1774,7 @@ void Compiler::compile_instruction_call(llvm::CallInst& llvm_instruction, sala::
                 push_back_operand(sala_instruction, memory_object(llvm_intrinsic->getOperand(1)));
                 push_back_operand(sala_instruction, memory_object(llvm_intrinsic->getOperand(2)));
             }
-            break;
+            return;
         case llvm::Intrinsic::memset:
             {
                 sala_instruction.set_opcode(sala::Instruction::Opcode::MEMSET);
@@ -1762,31 +1782,31 @@ void Compiler::compile_instruction_call(llvm::CallInst& llvm_instruction, sala::
                 push_back_operand(sala_instruction, memory_object(llvm_intrinsic->getOperand(1)));
                 push_back_operand(sala_instruction, memory_object(llvm_intrinsic->getOperand(2)));
             }
-            break;
+            return;
         case llvm::Intrinsic::stacksave:
             {
                 sala_instruction.set_opcode(sala::Instruction::Opcode::STACKSAVE);
                 push_back_operand(sala_instruction, memory_object(llvm_instruction));
             }
-            break;
+            return;
         case llvm::Intrinsic::stackrestore:
             {
                 sala_instruction.set_opcode(sala::Instruction::Opcode::STACKRESTORE);
                 push_back_operand(sala_instruction, memory_object(llvm_intrinsic->getOperand(0)));
             }
-            break;
+            return;
         case llvm::Intrinsic::vastart:
             {
                 sala_instruction.set_opcode(sala::Instruction::Opcode::VA_START);
                 push_back_operand(sala_instruction, memory_object(llvm_intrinsic->getOperand(0)));
             }
-            break;
+            return;
         case llvm::Intrinsic::vaend:
             {
                 sala_instruction.set_opcode(sala::Instruction::Opcode::VA_END);
                 push_back_operand(sala_instruction, memory_object(llvm_intrinsic->getOperand(0)));
             }
-            break;
+            return;
         case llvm::Intrinsic::fmuladd:
             {
                 auto const result_varibale_mo{ memory_object(llvm_instruction) };
@@ -1805,58 +1825,50 @@ void Compiler::compile_instruction_call(llvm::CallInst& llvm_instruction, sala::
                 push_back_operand(compiled_basic_block()->last_instruction_ref(), result_varibale_mo);
                 push_back_operand(compiled_basic_block()->last_instruction_ref(), memory_object(llvm_intrinsic->getOperand(2)));
             }
+            return;
+
+        case llvm::Intrinsic::fabs:
             break;
+
         default:
-            // We let the instruction to stay __INVALID__.
-            break;
+            NOT_IMPLEMENTED_YET();
+            return;
         }
-
-        return;
     }
-
-    auto const opcode{ get_interpreted_function_opcode(llvm_instruction.getCalledOperand(), sala::Instruction::Opcode::CALL) };
+    else
+        opcode = get_interpreted_function_opcode(llvm_instruction.getCalledOperand(), sala::Instruction::Opcode::CALL);
 
     std::vector<MemoryObject> arguments;
     {
+        auto append_call_value = [this, &arguments, &sala_instruction_back_mapping](llvm::Value* const llvm_arg)
+        {
+            compiled_function()->push_back_local_variable();
+            compiled_function()->last_local_variable_ref().set_num_bytes(module().getDataLayout().getPointerSize());
+            compiled_function()->last_local_variable_ref().source_back_mapping() = sala_instruction_back_mapping;
+
+            arguments.push_back({ compiled_function()->last_local_variable_ref().index(), sala::Instruction::Descriptor::LOCAL });
+
+            compiled_basic_block()->last_instruction_ref().set_opcode(sala::Instruction::Opcode::ADDRESS);
+            compiled_basic_block()->last_instruction_ref().source_back_mapping() = sala_instruction_back_mapping;
+            push_back_operand(compiled_basic_block()->last_instruction_ref(), arguments.back());
+            push_back_operand(compiled_basic_block()->last_instruction_ref(), memory_object(llvm_arg));
+
+            compiled_basic_block()->push_back_instruction();
+        };
+
         if (opcode == sala::Instruction::Opcode::CALL)
         {
             arguments.push_back(memory_object(llvm_instruction.getCalledOperand()));
 
             if (!llvm_instruction.getType()->isVoidTy())
-            {
-                compiled_function()->push_back_local_variable();
-                compiled_function()->last_local_variable_ref().set_num_bytes(module().getDataLayout().getPointerSize());
-                compiled_function()->last_local_variable_ref().source_back_mapping() = sala_instruction_back_mapping;
-
-                arguments.push_back({ compiled_function()->last_local_variable_ref().index(), sala::Instruction::Descriptor::LOCAL });
-
-                compiled_basic_block()->last_instruction_ref().set_opcode(sala::Instruction::Opcode::ADDRESS);
-                compiled_basic_block()->last_instruction_ref().source_back_mapping() = sala_instruction_back_mapping;
-                push_back_operand(compiled_basic_block()->last_instruction_ref(), arguments.back());
-                push_back_operand(compiled_basic_block()->last_instruction_ref(), memory_object(llvm_instruction));
-
-                compiled_basic_block()->push_back_instruction();
-            }
+                append_call_value(&llvm_instruction);
         }
         else if (!llvm_instruction.getType()->isVoidTy())
             arguments.push_back(memory_object(llvm_instruction));
 
         for (auto it = llvm_instruction.arg_begin(); it != llvm_instruction.arg_end(); ++it)
             if (llvm::isa<llvm::Function const>(*it))
-            {
-                compiled_function()->push_back_local_variable();
-                compiled_function()->last_local_variable_ref().set_num_bytes(module().getDataLayout().getPointerSize());
-                compiled_function()->last_local_variable_ref().source_back_mapping() = sala_instruction_back_mapping;
-
-                arguments.push_back({ compiled_function()->last_local_variable_ref().index(), sala::Instruction::Descriptor::LOCAL });
-
-                compiled_basic_block()->last_instruction_ref().set_opcode(sala::Instruction::Opcode::ADDRESS);
-                compiled_basic_block()->last_instruction_ref().source_back_mapping() = sala_instruction_back_mapping;
-                push_back_operand(compiled_basic_block()->last_instruction_ref(), arguments.back());
-                push_back_operand(compiled_basic_block()->last_instruction_ref(), memory_object(*it));
-
-                compiled_basic_block()->push_back_instruction();
-            }
+                append_call_value(*it);
             else
                 arguments.push_back(memory_object(it->get()));
     }
@@ -1865,7 +1877,7 @@ void Compiler::compile_instruction_call(llvm::CallInst& llvm_instruction, sala::
     compiled_basic_block()->last_instruction_ref().source_back_mapping() = sala_instruction_back_mapping;
     for (MemoryObject argument : arguments)
         push_back_operand(compiled_basic_block()->last_instruction_ref(), argument);
- }
+}
 
 
 void Compiler::compile_instruction_ret(llvm::ReturnInst& llvm_instruction, sala::Instruction& sala_instruction)
