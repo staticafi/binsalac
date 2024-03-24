@@ -462,9 +462,18 @@ void Compiler::run()
             if (it->isIntrinsic())
                 switch (it->getIntrinsicID())
                 {
+                    // Here we process llvm intrinsics which we translate as external functions.
+
                     case llvm::Intrinsic::fabs:
                         function_name = it->getReturnType()->isFloatTy() ? "fabsf" : "fabs";
                         break;
+                    case llvm::Intrinsic::bswap:
+                        function_name = "__llvm_intrinsic__bswap_" + std::to_string(8U * llvm_sizeof(it->getReturnType(), module()));
+                        break;
+                    case llvm::Intrinsic::ctlz:
+                        function_name = "__llvm_intrinsic__ctlz_" + std::to_string(8U * llvm_sizeof(it->getReturnType(), module()));
+                        break;
+
                     default:
                         do_register_function = false;
                         break;
@@ -562,6 +571,16 @@ void Compiler::compile_constant(
         else if (llvm_float->getType()->isDoubleTy())
         {
             double data = llvm_float->getValue().convertToDouble();
+            copy_bytes_of_value((std::uint8_t const *)&data, sizeof(data), sala_constant);
+        }
+        else if (llvm_float->getType()->isX86_FP80Ty() || llvm_float->getType()->isFP128Ty())
+        {
+            // WARNING: Here we are not correct as we represent 80-bit and 128-bit floats as 64-bit floats.
+            unsigned int constexpr NUM_HEX_CHARS{ 2U * sizeof(double) };
+            char hex_string[NUM_HEX_CHARS + 1U];
+            llvm_float->getValue().convertToHexString(hex_string, NUM_HEX_CHARS, false, llvm::RoundingMode::TowardZero);
+            hex_string[NUM_HEX_CHARS] = 0;
+            double data = std::strtod(hex_string, nullptr);
             copy_bytes_of_value((std::uint8_t const *)&data, sizeof(data), sala_constant);
         }
         else UNREACHABLE();
@@ -1827,7 +1846,10 @@ void Compiler::compile_instruction_call(llvm::CallInst& llvm_instruction, sala::
             }
             return;
 
+        // In this section we list llvm intrinsics which we translate as external functions.
         case llvm::Intrinsic::fabs:
+        case llvm::Intrinsic::bswap:
+        case llvm::Intrinsic::ctlz:
             break;
 
         default:
