@@ -17,6 +17,7 @@ class Salac:
         self.output_dir = os.path.abspath(os.getcwd())
         self.entry_function = 'main'
         self.opt_level = 0
+        self.use_m32 = False
         self.options = []
         self.verbose = False
 
@@ -53,6 +54,7 @@ class Salac:
             t0 = time.time()
             if self._execute(
                     [ "clang", "-O" + str(self.opt_level), "-g", "-S", "-emit-llvm", "-Wno-everything", "-fbracket-depth=1024",
+                        ("-m32" if self.use_m32 is True else ""),
                         os.path.join(in_dir, in_name + in_ext),
                         "-o", os.path.join(self.output_dir, in_name + ".ll"),
                         ],
@@ -152,6 +154,8 @@ class Salac:
             elif arg == "--opt" and i+1 < len(sys.argv) and sys.argv[i+1].isnumeric():
                 self.opt_level = min(2, max(0, int(sys.argv[i+1])))
                 i += 1
+            elif arg == "--m32":
+                self.use_m32 = True
             else:
                 self.options.append(arg)
 
@@ -176,6 +180,8 @@ class Salac:
         print("                     The default name is 'main'.")
         print("opt <0|1|2>          An optimization level for translation from C to Sala.")
         print("                     If not specified, then the level is 0.")
+        print("m32                  When specified, the source C file will be compiled for")
+        print("                     32-bit machine (cpu). Otherwise, 64-bit machine is assumed.")
         print("verbose              When specified, the script prints information about the")
         print("                     computation.")
         print("\nNext follows a listing of options of tools called from this script. When they are")
