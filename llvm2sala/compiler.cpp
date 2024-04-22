@@ -930,7 +930,7 @@ void Compiler::compile_instruction_unreachable(llvm::UnreachableInst& llvm_instr
 void Compiler::compile_instruction_alloca(llvm::AllocaInst& llvm_instruction, sala::Instruction& sala_instruction)
 {
     if ((uses_stacksave()
-             && (sala_instruction.basic_block()->index() != 0U ||
+             && (sala_instruction.basic_block_index() != 0U ||
                  llvm_basic_block_contains_intrinsic_before_instruction(
                         llvm_instruction.getParent(),
                         llvm::Intrinsic::stacksave,
