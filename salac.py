@@ -15,6 +15,7 @@ class Salac:
 
         self.input_path = None
         self.output_dir = os.path.abspath(os.getcwd())
+        self.rename = None
         self.entry_function = 'main'
         self.opt_level = 0
         self.use_m32 = False
@@ -47,7 +48,8 @@ class Salac:
     def compile(self) -> str:
         in_dir = os.path.dirname(self.input_path)
         in_name, in_ext = os.path.splitext(os.path.basename(self.input_path))
-        in_ext = os.path.splitext(in_name)[1] + in_ext
+        in_ext = (".sim" if os.path.splitext(in_name)[1] == ".sim" else "") + in_ext
+        out_name = in_name if self.rename is None else self.rename
 
         if in_ext.lower() in [".c", ".i"]:
             self.log("C -> llvm", end=' ')
@@ -102,7 +104,7 @@ class Salac:
             if self._execute(
                     [ os.path.join(self.dist_dir, "sala2sala" + self.tool_ext),
                         "--input", os.path.join(in_dir, in_name + in_ext),
-                        "--output", os.path.join(self.output_dir, in_name + ".json")
+                        "--output", os.path.join(self.output_dir, out_name + ".json")
                         ] + self.options,
                     None) is False:
                 raise Exception("Optimization of Sala code has failed: " + os.path.join(in_dir, in_name + in_ext))
@@ -111,7 +113,7 @@ class Salac:
             in_dir = self.output_dir
             in_ext = ".json"
 
-        return os.path.join(in_dir, in_name + in_ext)
+        return os.path.join(in_dir, out_name + in_ext)
 
     def _run(self) -> bool:
         start_time = time.time()
@@ -145,6 +147,9 @@ class Salac:
             elif arg == "--output" and i+1 < len(sys.argv) and not os.path.isfile(sys.argv[i+1]):
                 self.output_dir = os.path.normpath(os.path.abspath(sys.argv[i+1]))
                 i += 1
+            elif arg == "--rename" and i+1 < len(sys.argv) and not os.path.isfile(sys.argv[i+1]):
+                self.rename = sys.argv[i+1]
+                i += 1
             elif arg == "--entry" and i+1 < len(sys.argv) and not os.path.isfile(sys.argv[i+1]):
                 self.entry_function = sys.argv[i+1]
                 i += 1
@@ -176,6 +181,10 @@ class Salac:
         print("input <PATH>         A pathname of a C/LLVM program to be compiled to Sala.")
         print("output <PATH>        An output directory. If not specified, then the current")
         print("                     directory is used.")
+        print("rename <name>        A name, without extension, for the resulting Sala program.")
+        print("                     The '.json' extension will be added automatically. If not")
+        print("                     specified, then the name of the input program is used,")
+        print("                     with the extension changed to '.json'.")
         print("entry <name>         Allows to specify a custom entry function of the program.")
         print("                     The default name is 'main'.")
         print("opt <0|1|2>          An optimization level for translation from C to Sala.")
