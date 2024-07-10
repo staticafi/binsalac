@@ -473,6 +473,12 @@ void Compiler::run()
                     case llvm::Intrinsic::ctlz:
                         function_name = "__llvm_intrinsic__ctlz_" + std::to_string(8U * llvm_sizeof(it->getReturnType(), module()));
                         break;
+                    case llvm::Intrinsic::trunc:
+                        function_name = "__llvm_intrinsic__trunc_" + std::to_string(8U * llvm_sizeof(it->getReturnType(), module()));
+                        break;
+                    case llvm::Intrinsic::rint:
+                        function_name = "__llvm_intrinsic__rint_" + std::to_string(8U * llvm_sizeof(it->getReturnType(), module()));
+                        break;
 
                     default:
                         do_register_function = false;
@@ -637,6 +643,12 @@ void Compiler::compile_constant(
     else if (llvm::isa<llvm::UndefValue>(llvm_constant))
         for (std::size_t i = 0ULL, n = llvm_sizeof(llvm_constant->getType(), module()); i < n; ++i)
             sala_constant.push_back_byte(205U); // hex: CD, bin: 11001101 - indicates not initialized memory.
+    else if (auto llvm_ptr2int = llvm::dyn_cast<llvm::PtrToIntOperator>(llvm_constant))
+    {
+        // ASSUMPTION(llvm_sizeof(llvm_ptr2int->getType(), module()) == 8ULL && llvm::isa<llvm::Constant>(llvm_ptr2int->getOperand(0)));
+        // compile_constant(llvm::dyn_cast<llvm::Constant>(llvm_ptr2int->getOperand(0)), sala_constant, pointer_initializations);
+        NOT_IMPLEMENTED_YET();
+    }
     else
     {
         //std::cout << "\ncompile_constant() - NOT_IMPLEMENTED_YET:\n" << llvm_to_str(llvm_constant) << "\n";
@@ -1850,6 +1862,8 @@ void Compiler::compile_instruction_call(llvm::CallInst& llvm_instruction, sala::
         case llvm::Intrinsic::fabs:
         case llvm::Intrinsic::bswap:
         case llvm::Intrinsic::ctlz:
+        case llvm::Intrinsic::trunc:
+        case llvm::Intrinsic::rint:
             break;
 
         default:
