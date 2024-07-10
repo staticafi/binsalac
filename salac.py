@@ -122,7 +122,7 @@ class Salac:
             os.chdir(self.output_dir)
             self.compile()
         except Exception as e:
-            print("Stopped[%ds]" % int(round(time.time() - start_time)), flush=True)
+            self.log("Stopped[%ds]" % int(round(time.time() - start_time)))
             return False
         self.log("Done[%ds]" % int(round(time.time() - start_time)))
         return True
