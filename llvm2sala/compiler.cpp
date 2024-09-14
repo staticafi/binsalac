@@ -20,6 +20,7 @@
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/LegacyPassManager.h>
+#include <llvm/IR/PassManager.h>
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Passes/PassPlugin.h>
@@ -27,7 +28,6 @@
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/Support/raw_os_ostream.h>
-#include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include <llvm/Transforms/Utils.h>
 #include <llvm/Transforms/Utils/BasicBlockUtils.h>
 #include <llvm/DebugInfo/DIContext.h>
@@ -415,7 +415,9 @@ void Compiler::run()
 
     // Register static objects
 
-    for (auto& llvm_static : module().getGlobalList())
+    for (auto global_it = module().global_begin(); global_it != module().global_end(); ++global_it)
+    {
+        auto& llvm_static = *global_it;
         if (!llvm_static.isConstant())
         {
             ASSUMPTION(llvm_static.getType()->isPointerTy());
@@ -439,7 +441,7 @@ void Compiler::run()
             MemoryObject sala_static_variable_mo;
             {
                 auto& sala_static_variable = program().push_back_static_variable();
-                sala_static_variable.set_num_bytes(llvm_sizeof(llvm_static.getType()->getPointerElementType(), module()));
+                sala_static_variable.set_num_bytes(llvm_sizeof(llvm_static.getValueType(), module()));
                 sala_static_variable.source_back_mapping() = back_mapping;
                 sala_static_variable_mo = { sala_static_variable.index(), sala::Instruction::Descriptor::STATIC };
             }
@@ -453,6 +455,7 @@ void Compiler::run()
             if (!llvm_static.hasInitializer())
                 program().push_back_external_variable(sala_static_variable_mo.index, llvm_static.getName().str());
         }
+    }
     for (auto it = module().begin(); it != module().end(); ++it)
     {
         std::string function_name{ it->getName().str() };
@@ -495,7 +498,9 @@ void Compiler::run()
 
     // Compile static objects
 
-    for (auto& llvm_static : module().getGlobalList())
+    for (auto global_it = module().global_begin(); global_it != module().global_end(); ++global_it)
+    {
+        auto& llvm_static = *global_it;
         if (!llvm_static.isConstant() && llvm_static.hasInitializer())
         {
             auto variable_mo = memory_object(llvm_static);
@@ -506,6 +511,7 @@ void Compiler::run()
             push_back_operand(sala_instruction, self_mo);
             push_back_operand(sala_instruction, initializer_mo);
         }
+    }
     for (auto it = module().begin(); it != module().end(); ++it)
         if (has_memory_object(&*it) && it->isDeclaration())
         {
@@ -1448,6 +1454,8 @@ void Compiler::compile_instruction_getelementptr(llvm::GetElementPtrInst& llvm_i
     llvm::Type* llvm_operand0_type = llvm_instruction.getPointerOperand()->getType();
     ASSUMPTION(llvm_operand0_type->isPointerTy());
 
+    auto operand_ptr{ &ptr_operand };
+
     std::size_t num_nops{ 0ULL };
     for (std::size_t i = 0ULL; i < idx_memory_objects.size(); ++i)
     {
@@ -1466,7 +1474,7 @@ void Compiler::compile_instruction_getelementptr(llvm::GetElementPtrInst& llvm_i
                 sala_moveptr_instruction.set_opcode(sala::Instruction::Opcode::MOVEPTR);
 
                 push_back_operand(sala_moveptr_instruction, self);
-                push_back_operand(sala_moveptr_instruction, ptr_operand);
+                push_back_operand(sala_moveptr_instruction, *operand_ptr);
                 push_back_operand(sala_moveptr_instruction, idx_memory_objects.at(i));
 
                 auto num_pointed_bytes = llvm_sizeof(llvm_operand0_type, module());
@@ -1486,7 +1494,7 @@ void Compiler::compile_instruction_getelementptr(llvm::GetElementPtrInst& llvm_i
                 sala_moveptr_instruction.set_opcode(sala::Instruction::Opcode::MOVEPTR);
 
                 push_back_operand(sala_moveptr_instruction, self);
-                push_back_operand(sala_moveptr_instruction, ptr_operand);
+                push_back_operand(sala_moveptr_instruction, *operand_ptr);
                 push_back_operand(sala_moveptr_instruction, { moveptr_constant_index(1LL), sala::Instruction::Descriptor::CONSTANT });
 
                 auto llvm_struct_layout = module().getDataLayout().getStructLayout(llvm::dyn_cast<llvm::StructType>(llvm_operand0_type));
@@ -1496,7 +1504,8 @@ void Compiler::compile_instruction_getelementptr(llvm::GetElementPtrInst& llvm_i
             llvm_operand0_type = llvm_operand0_type->getStructElementType((unsigned int)constant_indices.at(i));
             break;
         case llvm::Type::PointerTyID:
-            llvm_operand0_type = llvm_deref_if_pointer(llvm_operand0_type);
+            INVARIANT(i == 0ULL);
+            llvm_operand0_type = llvm_instruction.getSourceElementType();
             if (constant_indices.at(i) == 0ULL)
             {
                 sala_moveptr_instruction.set_opcode(sala::Instruction::Opcode::NOP);
@@ -1507,7 +1516,7 @@ void Compiler::compile_instruction_getelementptr(llvm::GetElementPtrInst& llvm_i
                 sala_moveptr_instruction.set_opcode(sala::Instruction::Opcode::MOVEPTR);
 
                 push_back_operand(sala_moveptr_instruction, self);
-                push_back_operand(sala_moveptr_instruction, ptr_operand);
+                push_back_operand(sala_moveptr_instruction, *operand_ptr);
                 push_back_operand(sala_moveptr_instruction, idx_memory_objects.at(i));
 
                 auto num_pointed_bytes = llvm_sizeof(llvm_operand0_type, module());
@@ -1517,6 +1526,9 @@ void Compiler::compile_instruction_getelementptr(llvm::GetElementPtrInst& llvm_i
             break;
         default: ASSUMPTION(i + 1ULL ==  idx_memory_objects.size()); break;
         }
+
+        if (sala_moveptr_instruction.opcode() != sala::Instruction::Opcode::NOP)
+            operand_ptr = &self;
     }
 
     if (num_nops == idx_memory_objects.size() && self != ptr_operand)
@@ -1744,24 +1756,7 @@ void Compiler::compile_instruction_extractvalue(llvm::ExtractValueInst& llvm_ins
             llvm_operand0_type = llvm_operand0_type->getStructElementType((unsigned int)constant_indices.at(i));
             break;
         case llvm::Type::PointerTyID:
-            llvm_operand0_type = llvm_deref_if_pointer(llvm_operand0_type);
-            if (constant_indices.at(i) == 0ULL)
-            {
-                sala_moveptr_instruction.set_opcode(sala::Instruction::Opcode::NOP);
-                ++num_nops;
-            }
-            else
-            {
-                sala_moveptr_instruction.set_opcode(sala::Instruction::Opcode::MOVEPTR);
-
-                push_back_operand(sala_moveptr_instruction, sala_ptr_variable_mo);
-                push_back_operand(sala_moveptr_instruction, sala_ptr_variable_mo);
-                push_back_operand(sala_moveptr_instruction, idx_memory_objects.at(i));
-
-                auto num_pointed_bytes = llvm_sizeof(llvm_operand0_type, module());
-                MemoryObject size_memory_object{ moveptr_constant_index(num_pointed_bytes), sala::Instruction::Descriptor::CONSTANT };
-                push_back_operand(sala_moveptr_instruction, size_memory_object);
-            }
+            UNREACHABLE();
             break;
         default: ASSUMPTION(i + 1ULL ==  idx_memory_objects.size()); break;
         }
