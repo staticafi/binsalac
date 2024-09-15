@@ -482,6 +482,9 @@ void Compiler::run()
                     case llvm::Intrinsic::rint:
                         function_name = "__llvm_intrinsic__rint_" + std::to_string(8U * llvm_sizeof(it->getReturnType(), module()));
                         break;
+                    case llvm::Intrinsic::is_fpclass:
+                        function_name = "__llvm_intrinsic__is_fpclass_" + std::to_string(8U * llvm_sizeof(it->getFunctionType()->getParamType(0), module()));
+                        break;
 
                     default:
                         do_register_function = false;
@@ -1859,6 +1862,7 @@ void Compiler::compile_instruction_call(llvm::CallInst& llvm_instruction, sala::
         case llvm::Intrinsic::ctlz:
         case llvm::Intrinsic::trunc:
         case llvm::Intrinsic::rint:
+        case llvm::Intrinsic::is_fpclass:
             break;
 
         default:
