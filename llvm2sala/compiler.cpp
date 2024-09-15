@@ -1546,106 +1546,134 @@ void Compiler::compile_instruction_getelementptr(llvm::GetElementPtrInst& llvm_i
 
 void Compiler::compile_instruction_cmp(llvm::CmpInst& llvm_instruction, sala::Instruction& sala_instruction)
 {
-    push_back_operand(sala_instruction, memory_object(llvm_instruction));
-    push_back_operand(sala_instruction, memory_object(llvm_instruction.getOperand(0)));
-    push_back_operand(sala_instruction, memory_object(llvm_instruction.getOperand(1)));
+    auto const sala_instruction_back_mapping{ sala_instruction.source_back_mapping() };
+
+    auto const& build_cmp_operand = [this,&sala_instruction_back_mapping](llvm::Value* const llvm_param) {
+        auto const llvm_param_mo{ memory_object(llvm_param) };
+        if (llvm_param_mo.descriptor != sala::Instruction::Descriptor::FUNCTION)
+            return llvm_param_mo;
+
+        auto& sala_ptr_variable = compiled_function()->push_back_local_variable();
+        sala_ptr_variable.set_num_bytes(module().getDataLayout().getPointerSize());
+        sala_ptr_variable.source_back_mapping() = sala_instruction_back_mapping;
+        MemoryObject const param_mo{ sala_ptr_variable.index(), sala::Instruction::Descriptor::LOCAL };
+
+        auto& sala_instruction_ref{ compiled_basic_block()->last_instruction_ref() };
+        sala_instruction_ref.set_opcode(sala::Instruction::Opcode::ADDRESS);
+        sala_instruction_ref.set_modifier(sala::Instruction::Modifier::NONE);
+        push_back_operand(sala_instruction_ref, param_mo);
+        push_back_operand(sala_instruction_ref, llvm_param_mo);
+
+        compiled_basic_block()->push_back_instruction().source_back_mapping() = sala_instruction_back_mapping;
+
+        return param_mo;
+    };
+
+    std::vector<MemoryObject> params_mo;
+    params_mo.push_back(build_cmp_operand(llvm_instruction.getOperand(0)));
+    params_mo.push_back(build_cmp_operand(llvm_instruction.getOperand(1)));
+
+    auto& sala_instruction_ref{ compiled_basic_block()->last_instruction_ref() };
+    push_back_operand(sala_instruction_ref, memory_object(llvm_instruction));
+    push_back_operand(sala_instruction_ref, params_mo.front());
+    push_back_operand(sala_instruction_ref, params_mo.back());
 
     switch (llvm_instruction.getPredicate())
     {
         case llvm::CmpInst::Predicate::FCMP_OEQ:
-            sala_instruction.set_opcode(sala::Instruction::Opcode::EQUAL);
-            sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING);
+            sala_instruction_ref.set_opcode(sala::Instruction::Opcode::EQUAL);
+            sala_instruction_ref.set_modifier(sala::Instruction::Modifier::FLOATING);
             break;
         case llvm::CmpInst::Predicate::FCMP_OGT:
-            sala_instruction.set_opcode(sala::Instruction::Opcode::GREATER);
-            sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING);
+            sala_instruction_ref.set_opcode(sala::Instruction::Opcode::GREATER);
+            sala_instruction_ref.set_modifier(sala::Instruction::Modifier::FLOATING);
             break;
         case llvm::CmpInst::Predicate::FCMP_OGE:
-            sala_instruction.set_opcode(sala::Instruction::Opcode::GREATER_EQUAL);
-            sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING);
+            sala_instruction_ref.set_opcode(sala::Instruction::Opcode::GREATER_EQUAL);
+            sala_instruction_ref.set_modifier(sala::Instruction::Modifier::FLOATING);
             break;
         case llvm::CmpInst::Predicate::FCMP_OLT:
-            sala_instruction.set_opcode(sala::Instruction::Opcode::LESS);
-            sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING);
+            sala_instruction_ref.set_opcode(sala::Instruction::Opcode::LESS);
+            sala_instruction_ref.set_modifier(sala::Instruction::Modifier::FLOATING);
             break;
         case llvm::CmpInst::Predicate::FCMP_OLE:
-            sala_instruction.set_opcode(sala::Instruction::Opcode::LESS_EQUAL);
-            sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING);
+            sala_instruction_ref.set_opcode(sala::Instruction::Opcode::LESS_EQUAL);
+            sala_instruction_ref.set_modifier(sala::Instruction::Modifier::FLOATING);
             break;
         case llvm::CmpInst::Predicate::FCMP_ONE:
-            sala_instruction.set_opcode(sala::Instruction::Opcode::UNEQUAL);
-            sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING);
+            sala_instruction_ref.set_opcode(sala::Instruction::Opcode::UNEQUAL);
+            sala_instruction_ref.set_modifier(sala::Instruction::Modifier::FLOATING);
             break;
 
         case llvm::CmpInst::Predicate::FCMP_UEQ:
-            sala_instruction.set_opcode(sala::Instruction::Opcode::EQUAL);
-            sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING_UNORDERED);
+            sala_instruction_ref.set_opcode(sala::Instruction::Opcode::EQUAL);
+            sala_instruction_ref.set_modifier(sala::Instruction::Modifier::FLOATING_UNORDERED);
             break;
         case llvm::CmpInst::Predicate::FCMP_UGT:
-            sala_instruction.set_opcode(sala::Instruction::Opcode::GREATER);
-            sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING_UNORDERED);
+            sala_instruction_ref.set_opcode(sala::Instruction::Opcode::GREATER);
+            sala_instruction_ref.set_modifier(sala::Instruction::Modifier::FLOATING_UNORDERED);
             break;
         case llvm::CmpInst::Predicate::FCMP_UGE:
-            sala_instruction.set_opcode(sala::Instruction::Opcode::GREATER_EQUAL);
-            sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING_UNORDERED);
+            sala_instruction_ref.set_opcode(sala::Instruction::Opcode::GREATER_EQUAL);
+            sala_instruction_ref.set_modifier(sala::Instruction::Modifier::FLOATING_UNORDERED);
             break;
         case llvm::CmpInst::Predicate::FCMP_ULT:
-            sala_instruction.set_opcode(sala::Instruction::Opcode::LESS);
-            sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING_UNORDERED);
+            sala_instruction_ref.set_opcode(sala::Instruction::Opcode::LESS);
+            sala_instruction_ref.set_modifier(sala::Instruction::Modifier::FLOATING_UNORDERED);
             break;
         case llvm::CmpInst::Predicate::FCMP_ULE:
-            sala_instruction.set_opcode(sala::Instruction::Opcode::LESS_EQUAL);
-            sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING_UNORDERED);
+            sala_instruction_ref.set_opcode(sala::Instruction::Opcode::LESS_EQUAL);
+            sala_instruction_ref.set_modifier(sala::Instruction::Modifier::FLOATING_UNORDERED);
             break;
         case llvm::CmpInst::Predicate::FCMP_UNE:
-            sala_instruction.set_opcode(sala::Instruction::Opcode::UNEQUAL);
-            sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING_UNORDERED);
+            sala_instruction_ref.set_opcode(sala::Instruction::Opcode::UNEQUAL);
+            sala_instruction_ref.set_modifier(sala::Instruction::Modifier::FLOATING_UNORDERED);
             break;
 
         case llvm::CmpInst::Predicate::FCMP_UNO:
-            sala_instruction.set_opcode(sala::Instruction::Opcode::ISNAN);
-            sala_instruction.set_modifier(sala::Instruction::Modifier::FLOATING_UNORDERED);
+            sala_instruction_ref.set_opcode(sala::Instruction::Opcode::ISNAN);
+            sala_instruction_ref.set_modifier(sala::Instruction::Modifier::FLOATING_UNORDERED);
             break;
 
         case llvm::CmpInst::Predicate::ICMP_EQ:
-            sala_instruction.set_opcode(sala::Instruction::Opcode::EQUAL);
-            sala_instruction.set_modifier(sala::Instruction::Modifier::UNSIGNED);
+            sala_instruction_ref.set_opcode(sala::Instruction::Opcode::EQUAL);
+            sala_instruction_ref.set_modifier(sala::Instruction::Modifier::UNSIGNED);
             break;
         case llvm::CmpInst::Predicate::ICMP_NE:
-            sala_instruction.set_opcode(sala::Instruction::Opcode::UNEQUAL);
-            sala_instruction.set_modifier(sala::Instruction::Modifier::UNSIGNED);
+            sala_instruction_ref.set_opcode(sala::Instruction::Opcode::UNEQUAL);
+            sala_instruction_ref.set_modifier(sala::Instruction::Modifier::UNSIGNED);
             break;
         case llvm::CmpInst::Predicate::ICMP_UGT:
-            sala_instruction.set_opcode(sala::Instruction::Opcode::GREATER);
-            sala_instruction.set_modifier(sala::Instruction::Modifier::UNSIGNED);
+            sala_instruction_ref.set_opcode(sala::Instruction::Opcode::GREATER);
+            sala_instruction_ref.set_modifier(sala::Instruction::Modifier::UNSIGNED);
             break;
         case llvm::CmpInst::Predicate::ICMP_UGE:
-            sala_instruction.set_opcode(sala::Instruction::Opcode::GREATER_EQUAL);
-            sala_instruction.set_modifier(sala::Instruction::Modifier::UNSIGNED);
+            sala_instruction_ref.set_opcode(sala::Instruction::Opcode::GREATER_EQUAL);
+            sala_instruction_ref.set_modifier(sala::Instruction::Modifier::UNSIGNED);
             break;
         case llvm::CmpInst::Predicate::ICMP_ULT:
-            sala_instruction.set_opcode(sala::Instruction::Opcode::LESS);
-            sala_instruction.set_modifier(sala::Instruction::Modifier::UNSIGNED);
+            sala_instruction_ref.set_opcode(sala::Instruction::Opcode::LESS);
+            sala_instruction_ref.set_modifier(sala::Instruction::Modifier::UNSIGNED);
             break;
         case llvm::CmpInst::Predicate::ICMP_ULE:
-            sala_instruction.set_opcode(sala::Instruction::Opcode::LESS_EQUAL);
-            sala_instruction.set_modifier(sala::Instruction::Modifier::UNSIGNED);
+            sala_instruction_ref.set_opcode(sala::Instruction::Opcode::LESS_EQUAL);
+            sala_instruction_ref.set_modifier(sala::Instruction::Modifier::UNSIGNED);
             break;
         case llvm::CmpInst::Predicate::ICMP_SGT:
-            sala_instruction.set_opcode(sala::Instruction::Opcode::GREATER);
-            sala_instruction.set_modifier(sala::Instruction::Modifier::SIGNED);
+            sala_instruction_ref.set_opcode(sala::Instruction::Opcode::GREATER);
+            sala_instruction_ref.set_modifier(sala::Instruction::Modifier::SIGNED);
             break;
         case llvm::CmpInst::Predicate::ICMP_SGE:
-            sala_instruction.set_opcode(sala::Instruction::Opcode::GREATER_EQUAL);
-            sala_instruction.set_modifier(sala::Instruction::Modifier::SIGNED);
+            sala_instruction_ref.set_opcode(sala::Instruction::Opcode::GREATER_EQUAL);
+            sala_instruction_ref.set_modifier(sala::Instruction::Modifier::SIGNED);
             break;
         case llvm::CmpInst::Predicate::ICMP_SLT:
-            sala_instruction.set_opcode(sala::Instruction::Opcode::LESS);
-            sala_instruction.set_modifier(sala::Instruction::Modifier::SIGNED);
+            sala_instruction_ref.set_opcode(sala::Instruction::Opcode::LESS);
+            sala_instruction_ref.set_modifier(sala::Instruction::Modifier::SIGNED);
             break;
         case llvm::CmpInst::Predicate::ICMP_SLE:
-            sala_instruction.set_opcode(sala::Instruction::Opcode::LESS_EQUAL);
-            sala_instruction.set_modifier(sala::Instruction::Modifier::SIGNED);
+            sala_instruction_ref.set_opcode(sala::Instruction::Opcode::LESS_EQUAL);
+            sala_instruction_ref.set_modifier(sala::Instruction::Modifier::SIGNED);
             break;
 
         default:
