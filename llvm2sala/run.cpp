@@ -52,10 +52,10 @@ int run(int argc, char* argv[])
 
     std::ofstream ostr(output_json_file.c_str(), std::ios_base::binary);
     ostr << P;
-    if (get_program_options()->has("jsonx"))
+    if (get_program_options()->has("jsonc"))
     {
         ostr.close();
-        ostr.open(output_json_file.replace_extension("jsonx").c_str(), std::ios_base::binary);
+        ostr.open(output_json_file.replace_extension("jsonc").c_str(), std::ios_base::binary);
         ostr << sala::enable_json_comments << P << sala::disable_json_comments;
     }
 

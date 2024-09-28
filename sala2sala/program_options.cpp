@@ -7,7 +7,7 @@ program_options::program_options(int argc, char* argv[])
 {
     add_option("input", "Pathname to the input Sala file (.json).", "1");
     add_option("output", "Pathname to the output Sala file (.json).", "1");
-    add_option("jsonx", "When specified a Sala file with dbg lines (.jsonx) is saved as well.", "0");
+    add_option("jsonc", "When specified a Sala file with dbg lines (.jsonc) is saved as well.", "0");
 }
 
 static program_options_ptr  global_program_options;
