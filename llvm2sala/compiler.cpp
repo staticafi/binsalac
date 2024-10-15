@@ -486,6 +486,25 @@ void Compiler::run()
                         function_name = "__llvm_intrinsic__is_fpclass_" + std::to_string(8U * llvm_sizeof(it->getFunctionType()->getParamType(0), module()));
                         break;
 
+                    case llvm::Intrinsic::sadd_with_overflow:
+                        function_name = "__llvm_intrinsic__sadd_with_overflow_" + std::to_string(8U * llvm_sizeof(it->getFunctionType()->getParamType(0), module()));
+                        break;
+                    case llvm::Intrinsic::uadd_with_overflow:
+                        function_name = "__llvm_intrinsic__uadd_with_overflow_" + std::to_string(8U * llvm_sizeof(it->getFunctionType()->getParamType(0), module()));
+                        break;
+                    case llvm::Intrinsic::ssub_with_overflow:
+                        function_name = "__llvm_intrinsic__ssub_with_overflow_" + std::to_string(8U * llvm_sizeof(it->getFunctionType()->getParamType(0), module()));
+                        break;
+                    case llvm::Intrinsic::usub_with_overflow:
+                        function_name = "__llvm_intrinsic__usub_with_overflow_" + std::to_string(8U * llvm_sizeof(it->getFunctionType()->getParamType(0), module()));
+                        break;
+                    case llvm::Intrinsic::smul_with_overflow:
+                        function_name = "__llvm_intrinsic__smul_with_overflow_" + std::to_string(8U * llvm_sizeof(it->getFunctionType()->getParamType(0), module()));
+                        break;
+                    case llvm::Intrinsic::umul_with_overflow:
+                        function_name = "__llvm_intrinsic__umul_with_overflow_" + std::to_string(8U * llvm_sizeof(it->getFunctionType()->getParamType(0), module()));
+                        break;
+
                     default:
                         do_register_function = false;
                         break;
@@ -1864,6 +1883,13 @@ void Compiler::compile_instruction_call(llvm::CallInst& llvm_instruction, sala::
                 push_back_operand(sala_instruction, memory_object(llvm_intrinsic->getOperand(0)));
             }
             return;
+        case llvm::Intrinsic::vacopy:
+            {
+                sala_instruction.set_opcode(sala::Instruction::Opcode::VA_COPY);
+                push_back_operand(sala_instruction, memory_object(llvm_intrinsic->getOperand(0)));
+                push_back_operand(sala_instruction, memory_object(llvm_intrinsic->getOperand(1)));
+            }
+            return;
         case llvm::Intrinsic::fmuladd:
             {
                 auto const result_varibale_mo{ memory_object(llvm_instruction) };
@@ -1891,9 +1917,18 @@ void Compiler::compile_instruction_call(llvm::CallInst& llvm_instruction, sala::
         case llvm::Intrinsic::trunc:
         case llvm::Intrinsic::rint:
         case llvm::Intrinsic::is_fpclass:
+        case llvm::Intrinsic::sadd_with_overflow:
+        case llvm::Intrinsic::uadd_with_overflow:
+        case llvm::Intrinsic::ssub_with_overflow:
+        case llvm::Intrinsic::usub_with_overflow:
+        case llvm::Intrinsic::smul_with_overflow:
+        case llvm::Intrinsic::umul_with_overflow:
             break;
 
         default:
+
+            std::cout << "\ncompile_instruction_call() - NOT_IMPLEMENTED_YET:\n" << llvm_to_str(&llvm_instruction) << "\n";
+
             NOT_IMPLEMENTED_YET();
             return;
         }
