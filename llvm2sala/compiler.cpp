@@ -1909,6 +1909,15 @@ void Compiler::compile_instruction_call(llvm::CallInst& llvm_instruction, sala::
                 push_back_operand(compiled_basic_block()->last_instruction_ref(), memory_object(llvm_intrinsic->getOperand(2)));
             }
             return;
+        case llvm::Intrinsic::threadlocal_address:
+            {
+                // TODO: This is not correct solution. Each thread should have its copy
+                //       of the variable. But now, single variable is shared by all threads.
+                sala_instruction.set_opcode(sala::Instruction::Opcode::ADDRESS);
+                push_back_operand(sala_instruction, memory_object(&llvm_instruction));
+                push_back_operand(sala_instruction, memory_object(llvm_intrinsic->getOperand(0)));
+            }
+            return;
 
         // In this section we list llvm intrinsics which we translate as external functions.
         case llvm::Intrinsic::fabs:
