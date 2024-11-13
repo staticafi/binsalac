@@ -1918,6 +1918,29 @@ void Compiler::compile_instruction_call(llvm::CallInst& llvm_instruction, sala::
                 push_back_operand(sala_instruction, memory_object(llvm_intrinsic->getOperand(0)));
             }
             return;
+        case llvm::Intrinsic::is_constant:
+            {
+                sala_instruction.set_opcode(sala::Instruction::Opcode::COPY);
+                push_back_operand(sala_instruction, memory_object(&llvm_instruction));
+                bool const value = llvm::isa<llvm::Constant>(llvm_intrinsic->getOperand(0));
+                switch(llvm_sizeof(llvm_intrinsic->getType(), module()))
+                {
+                    case 1UL:
+                        sala_instruction.push_back_operand(numeric_constant_index<std::uint8_t>(value), sala::Instruction::Descriptor::CONSTANT);
+                        break;
+                    case 2UL:
+                        sala_instruction.push_back_operand(numeric_constant_index<std::uint16_t>(value), sala::Instruction::Descriptor::CONSTANT);
+                        break;
+                    case 4UL:
+                        sala_instruction.push_back_operand(numeric_constant_index<std::uint32_t>(value), sala::Instruction::Descriptor::CONSTANT);
+                        break;
+                    case 8UL:
+                        sala_instruction.push_back_operand(numeric_constant_index<std::uint64_t>(value), sala::Instruction::Descriptor::CONSTANT);
+                        break;
+                    default: UNREACHABLE(); break;
+                }
+            }
+            return;
 
         // In this section we list llvm intrinsics which we translate as external functions.
         case llvm::Intrinsic::fabs:
