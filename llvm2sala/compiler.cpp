@@ -488,6 +488,9 @@ void Compiler::run()
                     case llvm::Intrinsic::rint:
                         function_name = "__llvm_intrinsic__rint_" + std::to_string(8U * llvm_sizeof(it->getReturnType(), module()));
                         break;
+                    case llvm::Intrinsic::maxnum:
+                        function_name = "__llvm_intrinsic__maxnum_" + std::to_string(8U * llvm_sizeof(it->getReturnType(), module()));
+                        break;
                     case llvm::Intrinsic::is_fpclass:
                         function_name = "__llvm_intrinsic__is_fpclass_" + std::to_string(8U * llvm_sizeof(it->getFunctionType()->getParamType(0), module()));
                         break;
@@ -1956,6 +1959,7 @@ void Compiler::compile_instruction_call(llvm::CallInst& llvm_instruction, sala::
         case llvm::Intrinsic::ceil:
         case llvm::Intrinsic::floor:
         case llvm::Intrinsic::rint:
+        case llvm::Intrinsic::maxnum:
         case llvm::Intrinsic::is_fpclass:
         case llvm::Intrinsic::sadd_with_overflow:
         case llvm::Intrinsic::uadd_with_overflow:
