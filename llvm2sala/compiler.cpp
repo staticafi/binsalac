@@ -479,6 +479,12 @@ void Compiler::run()
                     case llvm::Intrinsic::trunc:
                         function_name = "__llvm_intrinsic__trunc_" + std::to_string(8U * llvm_sizeof(it->getReturnType(), module()));
                         break;
+                    case llvm::Intrinsic::ceil:
+                        function_name = "__llvm_intrinsic__ceil_" + std::to_string(8U * llvm_sizeof(it->getReturnType(), module()));
+                        break;
+                    case llvm::Intrinsic::floor:
+                        function_name = "__llvm_intrinsic__floor_" + std::to_string(8U * llvm_sizeof(it->getReturnType(), module()));
+                        break;
                     case llvm::Intrinsic::rint:
                         function_name = "__llvm_intrinsic__rint_" + std::to_string(8U * llvm_sizeof(it->getReturnType(), module()));
                         break;
@@ -1947,6 +1953,8 @@ void Compiler::compile_instruction_call(llvm::CallInst& llvm_instruction, sala::
         case llvm::Intrinsic::bswap:
         case llvm::Intrinsic::ctlz:
         case llvm::Intrinsic::trunc:
+        case llvm::Intrinsic::ceil:
+        case llvm::Intrinsic::floor:
         case llvm::Intrinsic::rint:
         case llvm::Intrinsic::is_fpclass:
         case llvm::Intrinsic::sadd_with_overflow:
