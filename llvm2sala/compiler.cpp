@@ -494,6 +494,9 @@ void Compiler::run()
                     case llvm::Intrinsic::rint:
                         function_name = "__llvm_intrinsic__rint_" + std::to_string(8U * llvm_sizeof(it->getReturnType(), module()));
                         break;
+                    case llvm::Intrinsic::abs:
+                        function_name = "__llvm_intrinsic__abs_" + std::to_string(8U * llvm_sizeof(it->getReturnType(), module()));
+                        break;
                     case llvm::Intrinsic::maxnum:
                         function_name = "__llvm_intrinsic__maxnum_" + std::to_string(8U * llvm_sizeof(it->getReturnType(), module()));
                         break;
@@ -505,6 +508,9 @@ void Compiler::run()
                         break;
                     case llvm::Intrinsic::is_fpclass:
                         function_name = "__llvm_intrinsic__is_fpclass_" + std::to_string(8U * llvm_sizeof(it->getFunctionType()->getParamType(0), module()));
+                        break;
+                    case llvm::Intrinsic::ptrmask:
+                        function_name = "__llvm_intrinsic__ptrmask_" + std::to_string(8U * llvm_sizeof(it->getFunctionType()->getParamType(0), module()));
                         break;
 
                     case llvm::Intrinsic::sadd_with_overflow:
@@ -1973,10 +1979,12 @@ void Compiler::compile_instruction_call(llvm::CallInst& llvm_instruction, sala::
         case llvm::Intrinsic::floor:
         case llvm::Intrinsic::round:
         case llvm::Intrinsic::rint:
+        case llvm::Intrinsic::abs:
         case llvm::Intrinsic::maxnum:
         case llvm::Intrinsic::minnum:
         case llvm::Intrinsic::copysign:
         case llvm::Intrinsic::is_fpclass:
+        case llvm::Intrinsic::ptrmask:
         case llvm::Intrinsic::sadd_with_overflow:
         case llvm::Intrinsic::uadd_with_overflow:
         case llvm::Intrinsic::ssub_with_overflow:
