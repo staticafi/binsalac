@@ -346,7 +346,10 @@ Compiler::MemoryObject const& Compiler::memory_object(llvm::Value* const llvm_va
                         ASSUMPTION(!llvm::isa<llvm::ConstantExpr>(ptr_init.first));
                         auto const ptr_init_mo{ memory_object(ptr_init.first) };
                         auto& sala_instruction = sala_block.push_back_instruction();
-                        sala_instruction.set_opcode(sala::Instruction::Opcode::ADDRESS);
+                        if (ptr_init_mo.descriptor == sala::Instruction::Descriptor::FUNCTION)
+                            sala_instruction.set_opcode(sala::Instruction::Opcode::ADDRESS);
+                        else
+                            sala_instruction.set_opcode(sala::Instruction::Opcode::COPY);
                         push_back_operand(sala_instruction, address_variable_mo);
                         push_back_operand(sala_instruction, ptr_init_mo);
                     }
