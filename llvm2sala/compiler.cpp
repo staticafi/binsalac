@@ -47,6 +47,15 @@ static inline void push_back_operand(sala::Instruction& sala_instruction, Compil
 }
 
 
+static std::uint64_t make_clear_mask(std::size_t used_bits, std::size_t all_bits)
+{
+    ASSUMPTION(used_bits <= all_bits);
+    if (used_bits == 0) return 0;
+    if (used_bits == all_bits) return ~uint64_t(0) >> (64 - all_bits);
+    return (uint64_t(1) << used_bits) - 1;
+}
+
+
 static void copy_bytes_of_value(std::uint8_t const* value_ptr, std::size_t const num_bytes, sala::Constant& constant)
 {
     if (is_this_little_endian_machine())
@@ -1347,9 +1356,20 @@ void Compiler::compile_instruction_cast(llvm::TruncInst& llvm_instruction, sala:
 
     if (llvm_sizeof(llvm_instruction.getType(), module()) == llvm_sizeof(llvm_instruction.getOperand(0)->getType(), module()))
     {
-        ASSUMPTION(llvm_instruction.getType()->isIntegerTy(1) && llvm_instruction.getOperand(0)->getType()->isIntegerTy(8));
-        sala_instruction.set_opcode(sala::Instruction::Opcode::AND);
-        sala_instruction.push_back_operand(numeric_constant_index<std::uint8_t>(1U), sala::Instruction::Descriptor::CONSTANT);
+        if (llvm_instruction.getType()->isIntegerTy(1) && llvm_instruction.getOperand(0)->getType()->isIntegerTy(8))
+        {
+            sala_instruction.set_opcode(sala::Instruction::Opcode::AND);
+            sala_instruction.push_back_operand(numeric_constant_index<std::uint8_t>(1U), sala::Instruction::Descriptor::CONSTANT);
+        }
+        else
+        {
+            std::size_t const  used_bits{ llvm_num_storage_bits(llvm_instruction.getType(), module()) };
+            std::size_t const  all_bits{ 8U * llvm_sizeof(llvm_instruction.getType(), module()) };
+            ASSUMPTION(all_bits <= 64ULL);
+            std::uint64_t const  mask{ make_clear_mask(used_bits, all_bits) };
+            sala_instruction.set_opcode(sala::Instruction::Opcode::AND);
+            sala_instruction.push_back_operand(numeric_constant_index_impl((std::uint8_t const*)&mask, all_bits / 8U), sala::Instruction::Descriptor::CONSTANT);
+        }
     }
     else
     {
