@@ -624,6 +624,9 @@ void Compiler::compile_constant(
             num_bits / 8U,
             sala_constant
             );
+        std::size_t const num_alloc_bits = 8U * llvm_sizeof(llvm_int->getType(), module());
+        for (std::size_t  b = num_bits; b < num_alloc_bits; b += 8U)
+            sala_constant.push_back_byte(0U);
     }
     else if (auto llvm_float = llvm::dyn_cast<llvm::ConstantFP>(llvm_constant))
     {
