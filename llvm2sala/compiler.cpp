@@ -1080,9 +1080,25 @@ void Compiler::compile_instruction_bitcast(llvm::BitCastInst& llvm_instruction, 
 
 void Compiler::compile_instruction_load(llvm::LoadInst& llvm_instruction, sala::Instruction& sala_instruction)
 {
+    auto& self = memory_object(&llvm_instruction);
+
     sala_instruction.set_opcode(sala::Instruction::Opcode::LOAD);
-    push_back_operand(sala_instruction, memory_object(&llvm_instruction));
+    push_back_operand(sala_instruction, self);
     push_back_operand(sala_instruction, memory_object(llvm_instruction.getOperand(0)));
+
+    std::size_t const  used_bits{ llvm_num_storage_bits(llvm_instruction.getType(), module()) };
+    std::size_t const  all_bits{ 8U * llvm_sizeof(llvm_instruction.getType(), module()) };
+    if (used_bits < all_bits)
+    {
+        auto const sala_instruction_back_mapping{ sala_instruction.source_back_mapping() };
+        std::uint64_t const  mask{ make_clear_mask(used_bits, all_bits) };
+        auto& instr = compiled_basic_block()->push_back_instruction();
+        instr.source_back_mapping() = sala_instruction_back_mapping;
+        instr.set_opcode(sala::Instruction::Opcode::AND);
+        push_back_operand(instr, self);
+        push_back_operand(instr, self);
+        instr.push_back_operand(numeric_constant_index_impl((std::uint8_t const*)&mask, all_bits / 8U), sala::Instruction::Descriptor::CONSTANT);
+    }
 }
 
 
