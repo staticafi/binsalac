@@ -633,7 +633,7 @@ void Compiler::compile_constant(
     if (auto llvm_int = llvm::dyn_cast<llvm::ConstantInt>(llvm_constant))
     {
         std::size_t const num_bits = std::max(8U, llvm_int->getValue().getBitWidth());
-        ASSUMPTION((num_bits % 8U) == 0 && num_bits <= 64U);
+        ASSUMPTION((num_bits % 8U) == 0);
         copy_bytes_of_value(
             (std::uint8_t const *)llvm_int->getValue().getRawData(),
             num_bits / 8U,
