@@ -14,6 +14,7 @@
 #   include <filesystem>
 #   include <unordered_map>
 #   include <string>
+#   include <vector>
 #   include <cstdint>
 
 
@@ -115,7 +116,8 @@ private:
     std::unordered_map<llvm::Value*, MemoryObject> created_memory_objects_;
     std::unordered_map<std::int64_t, std::uint32_t> moveptr_constants_;
     std::unordered_map<std::string, std::uint32_t> numeric_constants_;
-    CompileConstantVariableIndices compile_constant_variable_indices_;
+    std::vector<CompileConstantVariableIndices> compile_constant_variable_indices_;
+    std::uint32_t compile_constant_recursion_depth_;
     sala::Function* compiled_function_;
     sala::BasicBlock* compiled_basic_block_;
     bool uses_stacksave_;

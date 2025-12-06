@@ -178,6 +178,7 @@ Compiler::Compiler(sala::Program& P, llvm::Module& M)
     , moveptr_constants_{}
     , numeric_constants_{}
     , compile_constant_variable_indices_{}
+    , compile_constant_recursion_depth_{ 0U }
     , compiled_function_{ nullptr }
     , compiled_basic_block_{ nullptr }
 {}
@@ -281,25 +282,28 @@ Compiler::MemoryObject const& Compiler::memory_object(llvm::Value* const llvm_va
                 auto& sala_function{ *compiled_function() };
                 auto& sala_block{ *compiled_basic_block() };
 
-                if (compile_constant_variable_indices_.address_variable_index == std::numeric_limits<std::uint32_t>::max())
+                while (compile_constant_recursion_depth_ >= compile_constant_variable_indices_.size())
                 {
+                    compile_constant_variable_indices_.push_back({});
                     {
                         auto& sala_variable = sala_function.push_back_local_variable();
                         sala_variable.set_num_bytes(module().getDataLayout().getPointerSize());
-                        compile_constant_variable_indices_.moveptr_variable_index = sala_variable.index();
+                        compile_constant_variable_indices_.back().moveptr_variable_index = sala_variable.index();
                     }
                     {
                         auto& sala_variable = sala_function.push_back_local_variable();
                         sala_variable.set_num_bytes(module().getDataLayout().getPointerSize());
-                        compile_constant_variable_indices_.address_variable_index = sala_variable.index();
+                        compile_constant_variable_indices_.back().address_variable_index = sala_variable.index();
                     }
                 }
 
                 MemoryObject const moveptr_variable_mo{
-                    compile_constant_variable_indices_.moveptr_variable_index, sala::Instruction::Descriptor::LOCAL
+                    compile_constant_variable_indices_.at(compile_constant_recursion_depth_).moveptr_variable_index,
+                    sala::Instruction::Descriptor::LOCAL
                     };
                 MemoryObject const address_variable_mo{
-                    compile_constant_variable_indices_.address_variable_index, sala::Instruction::Descriptor::LOCAL
+                    compile_constant_variable_indices_.at(compile_constant_recursion_depth_).address_variable_index,
+                    sala::Instruction::Descriptor::LOCAL
                     };
                 for (auto const& ptr_init : pointer_initializations)
                 {
@@ -353,7 +357,9 @@ Compiler::MemoryObject const& Compiler::memory_object(llvm::Value* const llvm_va
                     else
                     {
                         ASSUMPTION(!llvm::isa<llvm::ConstantExpr>(ptr_init.first));
+                        ++compile_constant_recursion_depth_;
                         auto const ptr_init_mo{ memory_object(ptr_init.first) };
+                        --compile_constant_recursion_depth_;
                         auto& sala_instruction = sala_block.push_back_instruction();
                         if (ptr_init_mo.descriptor == sala::Instruction::Descriptor::FUNCTION)
                             sala_instruction.set_opcode(sala::Instruction::Opcode::ADDRESS);
@@ -715,9 +721,9 @@ void Compiler::compile_constant(
             sala_constant.push_back_byte(205U); // hex: CD, bin: 11001101 - indicates not initialized memory.
     else if (auto llvm_ptr2int = llvm::dyn_cast<llvm::PtrToIntOperator>(llvm_constant))
     {
-        // ASSUMPTION(llvm_sizeof(llvm_ptr2int->getType(), module()) == 8ULL && llvm::isa<llvm::Constant>(llvm_ptr2int->getOperand(0)));
-        // compile_constant(llvm::dyn_cast<llvm::Constant>(llvm_ptr2int->getOperand(0)), sala_constant, pointer_initializations);
-        NOT_IMPLEMENTED_YET();
+        pointer_initializations.push_back({ (llvm::Value*)llvm_constant, 0ULL });
+        for (unsigned int i = 0U, n = llvm_sizeof(llvm_ptr2int->getType(), module()); i < n; ++i)
+            sala_constant.push_back_byte(205U); // hex: CD, bin: 11001101 - indicates not initialized memory.
     }
     else
     {
