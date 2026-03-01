@@ -3,6 +3,8 @@ add_subdirectory(./llvm2llvm)
     message("  llvm2llvm")
 add_subdirectory(./llvm2sala)
     message("  llvm2sala")
+add_subdirectory(./optimizer)
+    message("  optimizer")
 add_subdirectory(./sala2sala)
     message("  sala2sala")
 
