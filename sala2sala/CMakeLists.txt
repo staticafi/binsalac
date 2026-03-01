@@ -11,6 +11,7 @@ add_executable(${THIS_TARGET_NAME}
 target_link_libraries(${THIS_TARGET_NAME}
     sala
     utility
+    optimizer
     ${BOOST_LIST_OF_LIBRARIES_TO_LINK_WITH}
     )
 
@@ -19,6 +20,8 @@ target_link_libraries(${THIS_TARGET_NAME}
 #     RELEASE_OUTPUT_NAME "${THIS_TARGET_NAME}_${CMAKE_SYSTEM_NAME}_Release"
 #     RELWITHDEBINFO_OUTPUT_NAME "${THIS_TARGET_NAME}_${CMAKE_SYSTEM_NAME}_RelWithDebInfo"
 #     )
+
+target_include_directories(${THIS_TARGET_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../optimizer/include)
 
 if(DEFINED BINSALAC_INSTALL_DIR)
     install(TARGETS ${THIS_TARGET_NAME} DESTINATION "${BINSALAC_INSTALL_DIR}")
