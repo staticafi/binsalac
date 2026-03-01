@@ -1,0 +1,34 @@
+cmake_minimum_required(VERSION 3.10)
+project(optimizer_lib)
+
+set(THIS_TARGET_NAME optimizer)
+
+find_package(TBB 2021 REQUIRED COMPONENTS tbb)
+
+set(INCLUDE_DIR
+  ${CMAKE_CURRENT_SOURCE_DIR}/../include/optimizer
+)
+
+set(SOURCE_FILES
+  ${CMAKE_CURRENT_SOURCE_DIR}/optimizer.cpp
+)
+
+set(HEADER_FILES
+    ${INCLUDE_DIR}/optimizer.hpp
+)
+
+add_library(${THIS_TARGET_NAME} STATIC ${SOURCE_FILES} ${HEADER_FILES})
+
+target_include_directories(${THIS_TARGET_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+
+add_subdirectory(programIR)
+add_subdirectory(translation)
+add_subdirectory(passes)
+add_subdirectory(analysis)
+
+target_link_libraries(${THIS_TARGET_NAME}
+    sala
+    utility
+    TBB::tbb
+    ${BOOST_LIST_OF_LIBRARIES_TO_LINK_WITH}
+)
