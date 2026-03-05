@@ -14,6 +14,11 @@ void BasicBlockIR::assign_to_function(const FunctionIR_sptr& function)
     function->acquire_basic_block(shared_from_this());
 }
 
+FunctionIR* BasicBlockIR::get_function_raw() const
+{
+    return function_raw_;
+}
+
 FunctionIR_sptr BasicBlockIR::get_function() const
 {
     return function_.lock();
@@ -41,7 +46,8 @@ BasicBlockIR::Metadata& BasicBlockIR::get_metadata()
 
 void BasicBlockIR::set_function(FunctionIR_sptr function)
 {
-    function_ = std::move(function);
+    function_raw_ = function.get();
+    function_     = function;
 }
 
 void BasicBlockIR::add_successor(BasicBlockIR_sptr successor)
@@ -77,12 +83,13 @@ void BasicBlockIR::remove_successor(const BasicBlockIR_sptr& successor)
 void BasicBlockIR::release_instruction(const InstructionIR_sptr& instruction)
 {
     ASSUMPTION(instruction != nullptr);
+    ASSUMPTION(instruction->get_basic_block_raw() == this);
     ASSUMPTION(instruction->get_basic_block().get() == this);
     ASSUMPTION(instruction->get_self_it().has_value());
 
     instructions_.erase(instruction->get_self_it().value());
-    instruction->get_basic_block() = nullptr;
-    instruction->get_self_it()     = std::nullopt;
+    instruction->set_basic_block(nullptr);
+    instruction->get_self_it() = std::nullopt;
 }
 
 void BasicBlockIR::acquire_instruction(InstructionIR_sptr instruction)

@@ -7,6 +7,10 @@
 
 namespace optimizer::program
 {
+BasicBlockIR* InstructionIR::get_basic_block_raw() const
+{
+    return basic_block_raw_;
+}
 
 BasicBlockIR_sptr InstructionIR::get_basic_block() const
 {
@@ -59,7 +63,8 @@ sala::Instruction::Modifier& InstructionIR::get_modifier()
 
 void InstructionIR::set_basic_block(BasicBlockIR_sptr basic_block)
 {
-    basic_block_ = std::move(basic_block);
+    basic_block_raw_ = basic_block.get();
+    basic_block_     = basic_block;
 }
 
 void InstructionIR::assign_to_basic_block(const BasicBlockIR_sptr& basic_block)
