@@ -3,19 +3,27 @@
 #include <iostream>
 #include <optimizer/programIR/instruction_ir.hpp>
 
+#include <optimizer/utils/sparse_state_map.hpp>
+
+#include <array>
 #include <cstdint>
 #include <ostream>
 #include <queue>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility/invariants.hpp>
+
 namespace optimizer::utils::points_to
 {
+
 using objectId   = std::int32_t;
 using offsetFlag = bool;
 
 // Grouped objects/memory regions where we do not separate concrete objects
 namespace grouped_objects
 {
+constexpr std::size_t ABSTRACT_NODE_COUNT = 10;
 // No known information about object, access nukes the may and must points to sets
 constexpr objectId UNDEFINED = -1;
 
@@ -47,6 +55,18 @@ constexpr objectId ALLOCA = -9;
 
 // Memory obtained via HEAP
 constexpr objectId HEAP = -10;
+
+static constexpr std::array<objectId, ABSTRACT_NODE_COUNT> ABSTRACT_NODES = {
+        grouped_objects::UNDEFINED,
+        grouped_objects::UNKOWN_GLOBAL,
+        grouped_objects::OUT_OF_LOCAL_SCOPE,
+        grouped_objects::OUT_OF_GLOBAL_SCOPE,
+        grouped_objects::MERGE_UNKNOWN,
+        grouped_objects::CALL_ORDER_DISCREPENCY,
+        grouped_objects::FUNCTION,
+        grouped_objects::VARGARG_BLOCK,
+        grouped_objects::ALLOCA,
+        grouped_objects::HEAP};
 } // namespace grouped_objects
 
 // Region of the memory where the variable lives
@@ -93,10 +113,7 @@ struct Target
     objectId id;
     bool     offset_flag{false};
 
-    friend bool operator==(const Target& a, const Target& b)
-    {
-        return a.id == b.id && a.offset_flag == b.offset_flag;
-    }
+    auto operator<=>(const Target&) const = default;
 };
 
 static inline std::ostream& operator<<(std::ostream& os, const Target& object)
@@ -123,14 +140,13 @@ struct TargetHash
 
 // Pool of concrete objects
 using ObjectPool = std::unordered_map<objectId, Object>;
-
 // Mays set
-using MaySet = std::unordered_set<Target, TargetHash>;
-// May state
-using MayState = std::unordered_map<objectId, MaySet>;
+using MaySet = std::set<Target>;
 
+// May state
+using MayState = SparseStateMap<objectId, MaySet>;
 // Must state
-using MustState = std::unordered_map<objectId, Target>;
+using MustState = SparseStateMap<objectId, Target>;
 
 struct ProgramPoint
 {
@@ -285,6 +301,7 @@ static inline void state_join_or_strict(MayState& A, const MayState& B,
 
 static inline void state_join_and(MustState& A, MustState const& B)
 {
+    std::vector<MustState::key_type> to_erease;
     for (auto A_kvp_iter = A.begin(); A_kvp_iter != A.end();)
     {
         const auto A_kvp_iter_next = std::next(A_kvp_iter);
@@ -292,14 +309,19 @@ static inline void state_join_and(MustState& A, MustState const& B)
         {
             if (B_kvp_iter->second != A_kvp_iter->second)
             {
-                A.erase(A_kvp_iter);
+                to_erease.push_back(A_kvp_iter->first);
             }
         }
         else
         {
-            A.erase(A_kvp_iter);
+            to_erease.push_back(A_kvp_iter->first);
         }
         A_kvp_iter = A_kvp_iter_next;
+    }
+
+    for (const auto& elem : to_erease)
+    {
+        A.erase(elem);
     }
 }
 
@@ -328,6 +350,7 @@ static inline void transitive_kill(MustState& must_in, const int id, const MaySt
 
 static inline void dump_may_set(const MayState& may_in)
 {
+    std::cout << "========== DUMPING =========== \n";
     for (const auto kvp : may_in)
     {
         std::cout << kvp.first << ": { ";
@@ -337,6 +360,7 @@ static inline void dump_may_set(const MayState& may_in)
         }
         std::cout << "}\n";
     }
+    std::cout << "^^^^^^^^^^^^^ END ^^^^^^^^^^^^^ \n";
 }
 
 static void nuke_must(MustState& must_state)
@@ -467,7 +491,6 @@ static inline std::size_t get_relevant_operands_count(const program::Instruction
     case sala::Instruction::Opcode::JUMP:
     case sala::Instruction::Opcode::BRANCH:
     case sala::Instruction::Opcode::RET:
-    case sala::Instruction::Opcode::STACKRESTORE:
         return 0;
     case sala::Instruction::Opcode::ADDRESS:
     case sala::Instruction::Opcode::LOAD:
@@ -510,6 +533,7 @@ static inline std::size_t get_relevant_operands_count(const program::Instruction
     case sala::Instruction::Opcode::UNEQUAL:
     case sala::Instruction::Opcode::ISNAN:
     case sala::Instruction::Opcode::MALLOC:
+    case sala::Instruction::Opcode::STACKRESTORE:
         return 1;
     case sala::Instruction::Opcode::STACKSAVE:
     case sala::Instruction::Opcode::CALL:

@@ -78,13 +78,6 @@ struct ProgramMeta final : PointsToMetaEntry<ProgramMetaEntryI>
     // transfer functions used
     std::function<void(const utils::MayTransferContextBundle& context)>  transfer_may_;
     std::function<void(const utils::MustTransferContextBundle& context)> transfer_must_;
-
-    void clear_context()
-    {
-        must_out.clear();
-        may_out.clear();
-        // id_to_variable.clear();
-    }
 };
 } // namespace optimizer::metadata::points_to
 
