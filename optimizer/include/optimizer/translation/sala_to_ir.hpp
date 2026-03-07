@@ -15,7 +15,7 @@ class SalaToIR
     program::ProgramIR_sptr translate(const std::shared_ptr<sala::Program> source);
 
   private:
-    void translate_part(const sala::Function& source, const program::FunctionIR_sptr destination);
+    void translate_part(const sala::Function& source, const program::FunctionIR_sptr& destination);
     program::BasicBlockIR_sptr  translate_part(const sala::BasicBlock& source);
     program::InstructionIR_sptr translate_part(const sala::Instruction& source);
     program::VariableIR_sptr    translate_part(const sala::Variable& source);
@@ -36,8 +36,6 @@ class SalaToIR
     std::unordered_map<std::uint32_t, program::ConstantIR_sptr> constant_map_;
     std::unordered_map<std::uint32_t, program::VariableIR_sptr> static_variables_map_;
     std::unordered_map<std::uint32_t, std::string>              external_variables_names_map_;
-    std::unordered_map<std::uint32_t, std::vector<program::OperandIRListW_iter>>
-            dummy_function_map_;
 
     // Function context
     std::unordered_map<std::uint32_t, program::BasicBlockIR_sptr> b_block_map_;

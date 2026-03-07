@@ -87,8 +87,8 @@ program::ProgramIR_sptr SalaToIR::translate(const std::shared_ptr<sala::Program>
     return program;
 }
 
-void SalaToIR::translate_part(const sala::Function&          source,
-                              const program::FunctionIR_sptr destination)
+void SalaToIR::translate_part(const sala::Function&           source,
+                              const program::FunctionIR_sptr& destination)
 {
     destination->get_external_flag()       = source.is_external();
     destination->get_initial_stack_bytes() = source.initial_stack_bytes();

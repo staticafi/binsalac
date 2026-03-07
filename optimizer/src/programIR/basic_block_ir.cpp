@@ -14,7 +14,7 @@ void BasicBlockIR::assign_to_function(const FunctionIR_sptr& function)
     function->acquire_basic_block(shared_from_this());
 }
 
-FunctionIR* BasicBlockIR::get_function_raw() const
+FunctionIR_raw BasicBlockIR::get_function_raw() const
 {
     return function_raw_;
 }

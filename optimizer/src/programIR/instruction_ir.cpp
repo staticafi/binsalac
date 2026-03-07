@@ -36,7 +36,7 @@ const InstructionIR::Metadata& InstructionIR::get_metadata() const
     return metadata_;
 }
 
-const OperandIRListW& InstructionIR::get_operands() const
+const OperandIRVecR& InstructionIR::get_operands() const
 {
     return operands_;
 }
@@ -75,27 +75,22 @@ void InstructionIR::assign_to_basic_block(const BasicBlockIR_sptr& basic_block)
 void InstructionIR::push_back_operand(VariableIR_sptr variable)
 {
     ASSUMPTION(variable != nullptr);
-    push_back_operand_impl(std::move(variable));
+    operands_.emplace_back(variable.get());
 }
 
 void InstructionIR::push_back_operand(FunctionIR_sptr function)
 {
     ASSUMPTION(function != nullptr);
-    push_back_operand_impl(std::move(function));
+    operands_.emplace_back(function.get());
 }
 
 void InstructionIR::push_back_operand(ConstantIR_sptr constant)
 {
     ASSUMPTION(constant != nullptr);
-    push_back_operand_impl(std::move(constant));
+    operands_.emplace_back(constant.get());
 }
 
-void InstructionIR::push_back_operand_impl(OperandIR_wptr operand)
-{
-    operands_.emplace_back(std::move(operand));
-}
-
-OperandIRListW& InstructionIR::get_operands()
+OperandIRVecR& InstructionIR::get_operands()
 {
     return operands_;
 }

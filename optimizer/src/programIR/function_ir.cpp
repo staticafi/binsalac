@@ -116,7 +116,7 @@ void FunctionIR::acquire_basic_block(BasicBlockIR_sptr basic_block)
 
     basic_block->set_function(shared_from_this());
     basic_blocks_.push_back(std::move(basic_block));
-    basic_blocks_.back()->get_self_it() = --basic_blocks_.end();
+    basic_blocks_.back()->get_self_it() = std::prev(basic_blocks_.end());
 }
 
 void FunctionIR::acquire_local_variable(VariableIR_sptr variable)
@@ -127,7 +127,7 @@ void FunctionIR::acquire_local_variable(VariableIR_sptr variable)
     variable->set_function(shared_from_this());
     variable->get_context() = VariableIR::Context::LOCAL;
     local_variables_.push_back(std::move(variable));
-    local_variables_.back()->get_self_it() = --local_variables_.end();
+    local_variables_.back()->get_self_it() = std::prev(local_variables_.end());
 }
 
 void FunctionIR::acquire_parameter(VariableIR_sptr parameter)
@@ -138,7 +138,7 @@ void FunctionIR::acquire_parameter(VariableIR_sptr parameter)
     parameter->set_function(shared_from_this());
     parameter->get_context() = VariableIR::Context::PARAMETER;
     parameters_.push_back(std::move(parameter));
-    parameters_.back()->get_self_it() = --local_variables_.end();
+    parameters_.back()->get_self_it() = std::prev(parameters_.end());
 }
 
 void FunctionIR::release_basic_block(const BasicBlockIR_sptr& basic_block)

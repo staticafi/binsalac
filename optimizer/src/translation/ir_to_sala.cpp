@@ -9,6 +9,7 @@
 #include <optimizer/programIR/variable_ir.hpp>
 
 #include <utility/assumptions.hpp>
+#include <utility/invariants.hpp>
 
 namespace optimizer::translation
 {
@@ -30,11 +31,11 @@ std::shared_ptr<sala::Program> IRToSala::translate(const program::ProgramIR_sptr
     for (const auto& constant_ir : source->get_constants())
     {
         const auto id            = static_cast<uint32_t>(sala_program_->constants().size());
-        auto       constant_sala = translate_part(constant_ir);
+        auto       constant_sala = translate_part(constant_ir.get());
         constant_sala.set_index(id);
         sala_program_->push_back_constant() = std::move(constant_sala);
 
-        const auto [_, succes] = constant_map_.try_emplace(constant_ir, id);
+        const auto [_, succes] = constant_map_.try_emplace(constant_ir.get(), id);
         ASSUMPTION(succes);
     };
 
@@ -43,11 +44,11 @@ std::shared_ptr<sala::Program> IRToSala::translate(const program::ProgramIR_sptr
         ASSUMPTION(static_variable_ir->get_context() == program::VariableIR::Context::STATIC);
         const auto id = static_cast<uint32_t>(sala_program_->static_variables().size());
 
-        auto static_var_sala = translate_part(static_variable_ir);
+        auto static_var_sala = translate_part(static_variable_ir.get());
         static_var_sala.set_index(id);
         static_var_sala.set_region(sala::Variable::Region::STATIC);
 
-        const auto [_, succes] = static_variables_map_.try_emplace(static_variable_ir, id);
+        const auto [_, succes] = static_variables_map_.try_emplace(static_variable_ir.get(), id);
         ASSUMPTION(succes);
 
         sala_program_->push_back_static_variable() = static_var_sala;
@@ -66,12 +67,12 @@ std::shared_ptr<sala::Program> IRToSala::translate(const program::ProgramIR_sptr
     {
         sala_program_->function_ref(id) = translate_part(function_ir);
 
-        if (function_ir == source->get_entry_func())
+        if (function_ir == source->get_entry_func().get())
         {
             sala_program_->set_entry_function(id);
         }
 
-        if (function_ir == source->get_static_initializer_func())
+        if (function_ir == source->get_static_initializer_func().get())
         {
             ASSUMPTION(id == 0);
         }
@@ -87,7 +88,7 @@ std::shared_ptr<sala::Program> IRToSala::translate(const program::ProgramIR_sptr
     return extracted_program;
 }
 
-sala::Function IRToSala::translate_part(const program::FunctionIR_sptr& source)
+sala::Function IRToSala::translate_part(program::FunctionIR_raw source)
 {
     const auto func_id       = function_map_.at(source);
     auto       function_sala = sala::Function();
@@ -106,10 +107,10 @@ sala::Function IRToSala::translate_part(const program::FunctionIR_sptr& source)
     {
         ASSUMPTION(parameter_ir->get_context() == program::VariableIR::Context::PARAMETER);
         const auto id          = function_sala.parameters().size();
-        const auto [_, succes] = parameters_map_.try_emplace(parameter_ir, id);
+        const auto [_, succes] = parameters_map_.try_emplace(parameter_ir.get(), id);
         ASSUMPTION(succes);
 
-        auto parameter_sala = translate_part(parameter_ir);
+        auto parameter_sala = translate_part(parameter_ir.get());
         parameter_sala.set_program(sala_program_.get());
         parameter_sala.set_index(id);
         parameter_sala.set_function_index(func_id);
@@ -122,10 +123,10 @@ sala::Function IRToSala::translate_part(const program::FunctionIR_sptr& source)
     {
         ASSUMPTION(local_var_ir->get_context() == program::VariableIR::Context::LOCAL);
         const auto id          = function_sala.local_variables().size();
-        const auto [_, succes] = local_variables_map_.try_emplace(local_var_ir, id);
+        const auto [_, succes] = local_variables_map_.try_emplace(local_var_ir.get(), id);
         ASSUMPTION(succes);
 
-        auto local_var_sala = translate_part(local_var_ir);
+        auto local_var_sala = translate_part(local_var_ir.get());
         local_var_sala.set_function_index(func_id);
         local_var_sala.set_index(id);
         local_var_sala.set_region(sala::Variable::Region::STACK);
@@ -145,20 +146,20 @@ sala::Function IRToSala::translate_part(const program::FunctionIR_sptr& source)
     return function_sala;
 }
 
-sala::BasicBlock IRToSala::translate_part(const program::BasicBlockIR_sptr& source)
+sala::BasicBlock IRToSala::translate_part(program::BasicBlockIR_raw source)
 {
     const auto basic_block_id   = b_block_map_.at(source);
     auto       basic_block_sala = sala::BasicBlock();
     basic_block_sala.set_index(basic_block_id);
     for (const auto& successor_ir : source->get_successors())
     {
-        basic_block_sala.push_back_successor(b_block_map_.at(successor_ir.lock()));
+        basic_block_sala.push_back_successor(b_block_map_.at(successor_ir.lock().get()));
     }
 
     for (const auto& instruction_ir : source->get_instructions())
     {
 
-        auto instruction_sala = translate_part(instruction_ir);
+        auto instruction_sala = translate_part(instruction_ir.get());
         instruction_sala.set_basic_block_index(basic_block_id);
         instruction_sala.set_index(
                 static_cast<std::uint32_t>(basic_block_sala.instructions().size()));
@@ -168,7 +169,7 @@ sala::BasicBlock IRToSala::translate_part(const program::BasicBlockIR_sptr& sour
     return basic_block_sala;
 };
 
-sala::Instruction IRToSala::translate_part(const program::InstructionIR_sptr& source)
+sala::Instruction IRToSala::translate_part(program::InstructionIR_raw source)
 {
     auto        instruction_sala = sala::Instruction();
     const auto& metadata         = source->get_metadata();
@@ -181,11 +182,11 @@ sala::Instruction IRToSala::translate_part(const program::InstructionIR_sptr& so
 
     for (const auto& operand_ir : source->get_operands())
     {
-        if (std::holds_alternative<program::VariableIR_wptr>(operand_ir))
+        if (std::holds_alternative<program::VariableIR_raw>(operand_ir))
         {
             std::optional<std::uint32_t>                 id;
             std::optional<sala::Instruction::Descriptor> descriptor;
-            const auto variable_operand_ir = std::get<program::VariableIR_wptr>(operand_ir).lock();
+            const auto variable_operand_ir = std::get<program::VariableIR_raw>(operand_ir);
             const auto context             = variable_operand_ir->get_context();
             switch (context)
             {
@@ -225,18 +226,18 @@ sala::Instruction IRToSala::translate_part(const program::InstructionIR_sptr& so
             instruction_sala.push_back_operand(id.value(), descriptor.value());
         }
 
-        else if (std::holds_alternative<program::ConstantIR_wptr>(operand_ir))
+        else if (std::holds_alternative<program::ConstantIR_raw>(operand_ir))
         {
-            const auto constant_operand_ir = std::get<program::ConstantIR_wptr>(operand_ir).lock();
+            const auto constant_operand_ir = std::get<program::ConstantIR_raw>(operand_ir);
             const auto id_iter             = constant_map_.find(constant_operand_ir);
             ASSUMPTION(id_iter != constant_map_.end());
             instruction_sala.push_back_operand(id_iter->second,
                                                sala::Instruction::Descriptor::CONSTANT);
         }
 
-        else if (std::holds_alternative<program::FunctionIR_wptr>(operand_ir))
+        else if (std::holds_alternative<program::FunctionIR_raw>(operand_ir))
         {
-            const auto function_operand_ir = std::get<program::FunctionIR_wptr>(operand_ir).lock();
+            const auto function_operand_ir = std::get<program::FunctionIR_raw>(operand_ir);
             const auto id_iter             = function_map_.find(function_operand_ir);
             ASSUMPTION(id_iter != function_map_.end());
             instruction_sala.push_back_operand(id_iter->second,
@@ -247,7 +248,7 @@ sala::Instruction IRToSala::translate_part(const program::InstructionIR_sptr& so
     return instruction_sala;
 }
 
-sala::Variable IRToSala::translate_part(const program::VariableIR_sptr& source)
+sala::Variable IRToSala::translate_part(program::VariableIR_raw source)
 {
     auto variable_sala = sala::Variable();
 
@@ -263,7 +264,7 @@ sala::Variable IRToSala::translate_part(const program::VariableIR_sptr& source)
     return variable_sala;
 }
 
-sala::Constant IRToSala::translate_part(const program::ConstantIR_sptr& source)
+sala::Constant IRToSala::translate_part(program::ConstantIR_raw source)
 {
     auto constant_sala = sala::Constant();
     constant_sala.set_program(sala_program_.get());
@@ -292,8 +293,8 @@ void IRToSala::clear_function_context()
     local_variables_map_.clear();
 }
 
-void IRToSala::prefill_b_block_map(const program::FunctionIR_sptr& ir_function_context,
-                                   sala::Function&                 sala_function_context)
+void IRToSala::prefill_b_block_map(program::FunctionIR_raw ir_function_context,
+                                   sala::Function&         sala_function_context)
 {
 
     for (const auto& ir_b_block : ir_function_context->get_basic_blocks())
@@ -301,7 +302,7 @@ void IRToSala::prefill_b_block_map(const program::FunctionIR_sptr& ir_function_c
         const auto b_block_id =
                 static_cast<std::uint32_t>(sala_function_context.basic_blocks().size());
         sala_function_context.push_back_basic_block();
-        const auto [_, succes] = b_block_map_.try_emplace(ir_b_block, b_block_id);
+        const auto [_, succes] = b_block_map_.try_emplace(ir_b_block.get(), b_block_id);
         ASSUMPTION(succes);
     }
 }
@@ -311,7 +312,7 @@ void IRToSala::prefill_function_map()
     const auto static_init_func_ir = ir_program->get_static_initializer_func();
     const auto func_id = static_cast<std::uint32_t>(sala_program_->functions().size()); // 0
     sala_program_->push_back_function("") = {};
-    const auto [_, succes]                = function_map_.emplace(static_init_func_ir, func_id);
+    const auto [_, succes] = function_map_.emplace(static_init_func_ir.get(), func_id);
     ASSUMPTION(succes);
 
     for (const auto& ir_func : ir_program->get_functions())
@@ -323,7 +324,7 @@ void IRToSala::prefill_function_map()
 
         const auto func_id = static_cast<std::uint32_t>(sala_program_->functions().size());
         sala_program_->push_back_function("") = {};
-        const auto [_, succes]                = function_map_.emplace(ir_func, func_id);
+        const auto [_, succes]                = function_map_.emplace(ir_func.get(), func_id);
         ASSUMPTION(succes);
     }
 }

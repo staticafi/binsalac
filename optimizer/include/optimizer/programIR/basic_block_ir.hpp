@@ -16,6 +16,7 @@ class BasicBlockIR : public std::enable_shared_from_this<BasicBlockIR>
     BasicBlockIR() = default;
     void assign_to_function(const FunctionIR_sptr& function);
 
+    FunctionIR_raw                               get_function_raw() const;
     FunctionIR_sptr                              get_function() const;
     const std::optional<BasicBlockIRListS_iter>& get_self_it() const;
     const Metadata&                              get_metadata() const;
@@ -38,6 +39,7 @@ class BasicBlockIR : public std::enable_shared_from_this<BasicBlockIR>
 
   private:
     FunctionIR_wptr                       function_;
+    FunctionIR_raw                        function_raw_;
     std::optional<BasicBlockIRListS_iter> self_it_;
 
     BasicBlockIRListW predecessors_;
