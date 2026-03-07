@@ -4,6 +4,8 @@
 #include <optimizer/programIR/function_ir.hpp>
 #include <optimizer/programIR/instruction_ir.hpp>
 
+#include <utility/invariants.hpp>
+
 #include <span>
 #include <unordered_set>
 #include <utility/development.hpp>
@@ -129,14 +131,14 @@ class MergeConstants::Impl
         }
     }
 
-    void exclude_possible_const_operand(const program::OperandIR_wptr operand)
+    void exclude_possible_const_operand(const program::OperandIR_raw operand)
     {
-        if (!std::holds_alternative<program::ConstantIR_wptr>(operand))
+        if (!std::holds_alternative<program::ConstantIR_raw>(operand))
         {
             return;
         }
 
-        const auto constant = std::get<program::ConstantIR_wptr>(operand).lock();
+        const auto constant = std::get<program::ConstantIR_raw>(operand);
         duplicates_.erase(constant);
     }
 
@@ -154,18 +156,16 @@ class MergeConstants::Impl
             {
                 for (const auto& instruction : basic_block->get_instructions())
                 {
-                    for (auto operand_it = instruction->get_operands().begin();
-                         operand_it != instruction->get_operands().end(); ++operand_it)
+                    for (auto& operand : instruction->get_operands())
                     {
-                        if (!std::holds_alternative<program::ConstantIR_wptr>(*operand_it))
+                        if (!std::holds_alternative<program::ConstantIR_raw>(operand))
                         {
                             continue;
                         }
-                        const auto constant =
-                                std::get<program::ConstantIR_wptr>(*operand_it).lock();
+                        const auto constant = std::get<program::ConstantIR_raw>(operand);
                         if (duplicates_.contains(constant))
                         {
-                            *operand_it = canonical_constant_map_.at(constant->get_bytes());
+                            operand = canonical_constant_map_.at(constant->get_bytes()).get();
                             continue;
                         }
                     }
@@ -186,7 +186,7 @@ class MergeConstants::Impl
             if (!succes)
             {
                 const auto next_constant = std::next(constant_it);
-                const auto [_, success]  = duplicates_.insert(constant);
+                const auto [_, success]  = duplicates_.insert(constant.get());
                 INVARIANT(success);
                 sala_ir_->release_constant(constant);
                 duplicit_found = true;
@@ -204,8 +204,8 @@ class MergeConstants::Impl
   private:
     program::ProgramIR_sptr sala_ir_;
     std::unordered_map<ConstantView, program::ConstantIR_sptr, ConstantViewHash, ConstantViewEq>
-                                                 canonical_constant_map_;
-    std::unordered_set<program::ConstantIR_sptr> duplicates_;
+                                                canonical_constant_map_;
+    std::unordered_set<program::ConstantIR_raw> duplicates_;
 };
 
 program::ProgramIR_sptr MergeConstants::run(program::ProgramIR_sptr sala_ir)

@@ -17,16 +17,16 @@ namespace
 {
 struct TransformationContext
 {
-    program::InstructionIR&      instruction;
-    program::OperandIRListW_iter indirection_iter;
-    program::OperandIR_wptr      target;
+    program::InstructionIR&     instruction;
+    program::OperandIRVecR_iter indirection_iter;
+    program::OperandIR_raw      target;
 };
 
 class FunctionContext
 {
   public:
     explicit FunctionContext(program::FunctionIR_sptr function_ir)
-        : function_{std::move(function_ir)}, function_query_(*function_ir)
+        : function_{std::move(function_ir)}, function_query_(function_ir)
     {
     }
 
@@ -54,10 +54,10 @@ class FunctionContext
             switch (instr_ptr->get_opcode())
             {
             case sala::Instruction::Opcode::LOAD:
-                queue_replace_load(*instr_ptr);
+                queue_replace_load(instr_ptr);
                 break;
             case sala::Instruction::Opcode::STORE:
-                queue_replace_store(*instr_ptr);
+                queue_replace_store(instr_ptr);
                 break;
             default:
                 break;
@@ -77,27 +77,26 @@ class FunctionContext
         }
     }
 
-    void queue_replace_load(program::InstructionIR& instruction)
+    void queue_replace_load(const program::InstructionIR_sptr& instruction)
     {
-        queue_replace(instruction, std::next(instruction.get_operands().begin()));
+        queue_replace(instruction, std::next(instruction->get_operands().begin()));
     }
 
-    void queue_replace_store(program::InstructionIR& instruction)
+    void queue_replace_store(const program::InstructionIR_sptr& instruction)
     {
-        queue_replace(instruction, instruction.get_operands().begin());
+        queue_replace(instruction, instruction->get_operands().begin());
     }
 
-    void queue_replace(program::InstructionIR&            instruction,
-                       const program::OperandIRListW_iter indirect_operand_iter)
+    void queue_replace(const program::InstructionIR_sptr& instruction,
+                       const program::OperandIRVecR_iter  indirect_operand_iter)
     {
         const auto& indirect_operand = *indirect_operand_iter;
-        if (!std::holds_alternative<program::VariableIR_wptr>(indirect_operand))
+        if (!std::holds_alternative<program::VariableIR_raw>(indirect_operand))
         {
             return;
         }
 
-        const auto& indirect_variable =
-                *(std::get<program::VariableIR_wptr>(indirect_operand).lock());
+        const auto& indirect_variable = *(std::get<program::VariableIR_raw>(indirect_operand));
         if (indirect_variable.get_context() != program::VariableIR::Context::LOCAL)
         {
             // TODO: think about replacing also not local variables
@@ -122,8 +121,9 @@ class FunctionContext
             return;
         }
 
-        to_transform_bb_queue.emplace_back(instruction, indirect_operand_iter,
-                                           target_operand.value());
+        // FIXME: fix this
+        //  to_transform_bb_queue.emplace_back(instruction, indirect_operand_iter,
+        //                                     target_operand.value());
     }
 
   private:

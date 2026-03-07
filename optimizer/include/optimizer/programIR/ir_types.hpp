@@ -1,5 +1,5 @@
-#ifndef OPTIMIZER_IR_TYPES_HPP_INCLUDED
-#define OPTIMIZER_IR_TYPES_HPP_INCLUDED
+#ifndef IR_TYPES_HPP_INCLUDED
+#define IR_TYPES_HPP_INCLUDED
 #include <optimizer/metadata/metadata.hpp>
 
 #include <list>
@@ -42,7 +42,6 @@ using FunctionIR_csptr    = std::shared_ptr<const FunctionIR>;
 using ProgramIR_csptr     = std::shared_ptr<const ProgramIR>;
 using OperandIR_csptr     = std::variant<VariableIR_csptr, ConstantIR_csptr, FunctionIR_csptr>;
 using OperandIR_craw      = std::variant<const VariableIR*, const ConstantIR*, const FunctionIR*>;
-using VariableIR_craw     = const VariableIR*;
 
 using ConstantIR_wptr    = std::weak_ptr<ConstantIR>;
 using VariableIR_wptr    = std::weak_ptr<VariableIR>;
