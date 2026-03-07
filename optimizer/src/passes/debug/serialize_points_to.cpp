@@ -381,22 +381,19 @@ struct SerializePointsTo::Impl
             builder_ << "\n";
         }
     }
-    void serialize_operand(const program::OperandIR_wptr& operand, int operand_sep)
+    void serialize_operand(const program::OperandIR_raw& operand, int operand_sep)
     {
-        if (const auto variable_w = std::get_if<program::VariableIR_wptr>(&operand))
+        if (const auto variable_raw = std::get_if<program::VariableIR_raw>(&operand))
         {
-            const auto variable_s = variable_w->lock();
-            serialize_variable(*variable_s, operand_sep);
+            serialize_variable(**variable_raw, operand_sep);
         }
-        else if (const auto constant_w = std::get_if<program::ConstantIR_wptr>(&operand))
+        else if (const auto constant_raw = std::get_if<program::ConstantIR_raw>(&operand))
         {
-            const auto constant_s = constant_w->lock();
-            serialize_constant(*constant_s, operand_sep);
+            serialize_constant(**constant_raw, operand_sep);
         }
-        else
+        else if (const auto function_raw = std::get_if<program::FunctionIR_raw>(&operand))
         {
-            const auto function_s = std::get<program::FunctionIR_wptr>(operand).lock();
-            serialize_function_pointer(*function_s, operand_sep);
+            serialize_function_pointer(**function_raw, operand_sep);
         }
     }
     void serialize_function_pointer(const program::FunctionIR& function, int offset)
