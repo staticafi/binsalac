@@ -38,21 +38,24 @@ static inline void apply_transfer_may_load(const MayTransferContextBundle& conte
         // access to undefined
         std::cout << serialize_program_point(context.pp) << " NUKING LOAD: contains UNDEFINED "
                   << vM_id << std::endl;
+        context.may_in[vM_id] = {{grouped_objects::UNDEFINED, false}};
         nuke_may(context);
         return;
     }
+
+    // FIXME: failing assumption somewhere we generate empty set
     ASSUMPTION(!vM_id_may_iter->second.empty());
     // singleton
     if (vM_id_may_iter->second.size() == 1)
     {
-        if (const auto target_may_iter =
-                    context.may_in.find((*(vM_id_may_iter->second.begin())).id);
-            target_may_iter != context.may_in.end())
+        const auto target_may_iter = context.may_in.find((vM_id_may_iter->second.begin())->id);
+        if (target_may_iter != context.may_in.end())
         {
             // target was a pointer
-            context.may_in[vN_id] = target_may_iter->second;
+            ASSUMPTION(!target_may_iter->second.empty());
+            context.may_in.emplace(vM_id, target_may_iter->second);
         }
-        else if (vM_id_may_iter->second.size())
+        else if (target_may_iter->second.empty())
         {
             // leaves pointers set; assigned a non pointer
             context.may_in.erase(vN_id);
@@ -64,7 +67,9 @@ static inline void apply_transfer_may_load(const MayTransferContextBundle& conte
     MayState::iterator vN_id_may_iter;
     auto               untracked_encountered = false;
     auto               tracked_encountered   = false;
-    for (const auto source : vM_id_may_iter->second)
+
+    const auto vM_targets_copy = vM_id_may_iter->second;
+    for (const auto source : vM_targets_copy)
     {
         const auto source_may_iter = context.may_in.find(source.id);
         if (source_may_iter == context.may_in.end())
@@ -75,7 +80,8 @@ static inline void apply_transfer_may_load(const MayTransferContextBundle& conte
         else
         {
             // is a pointer
-            for (const auto transfer : source_may_iter->second)
+            const auto copy = source_may_iter->second;
+            for (const auto transfer : copy)
             {
                 if (tracked_encountered)
                 {
@@ -111,6 +117,7 @@ static inline void apply_transfer_may_store(const MayTransferContextBundle& cont
         // access to untracked
         std::cout << serialize_program_point(context.pp) << " NUKING STORE: not tracked " << vN_id
                   << std::endl;
+        dump_may_set(context.may_in);
         nuke_may(context);
         context.may_in[vN_id] = {{grouped_objects::UNDEFINED, false}};
         return;
@@ -128,7 +135,14 @@ static inline void apply_transfer_may_store(const MayTransferContextBundle& cont
     const auto vM_id_may_iter        = context.may_in.find(vM_id);
     const auto is_vM_tracked_pointer = vM_id_may_iter != context.may_in.end();
 
-    for (const auto& target : vN_id_may_iter->second)
+    std::optional<MaySet> vM_targets_copy;
+    if (is_vM_tracked_pointer)
+    {
+        vM_targets_copy = vM_id_may_iter->second;
+    }
+
+    const auto vN_targets_copy = vN_id_may_iter->second;
+    for (const auto& target : vN_targets_copy)
     {
         const auto target_may_iter = context.may_in.find(target.id);
         // target recognized as a pointer
@@ -136,7 +150,7 @@ static inline void apply_transfer_may_store(const MayTransferContextBundle& cont
         {
             if (is_vM_tracked_pointer)
             {
-                for (const auto& transfer : vM_id_may_iter->second)
+                for (const auto& transfer : vM_targets_copy.value())
                 {
                     target_may_iter->second.insert(transfer);
                 }
@@ -150,7 +164,8 @@ static inline void apply_transfer_may_store(const MayTransferContextBundle& cont
         // as such we transfer the information cleanly
         else if (is_vM_tracked_pointer)
         {
-            context.may_in[target.id] = vM_id_may_iter->second;
+            ASSUMPTION(!vM_targets_copy->empty());
+            context.may_in.emplace(target.id, vM_targets_copy.value());
         }
         // target not recognized as pointer and source not recognized as a pointer no need for
         // points to information transfer
@@ -166,7 +181,7 @@ static inline void apply_transfer_may_memcpy_memmove(const MayTransferContextBun
     const auto vM_id = context.operands_id[1];
 
     const auto vN_id_may_iter = context.may_in.find(vN_id);
-    auto       vM_id_may_iter = context.may_in.find(vN_id);
+    const auto vM_id_may_iter = context.may_in.find(vN_id);
     if (vM_id_may_iter == context.may_in.end())
     {
         // access to untracked
@@ -206,9 +221,12 @@ static inline void apply_transfer_may_memcpy_memmove(const MayTransferContextBun
         return;
     }
 
-    auto untracked_encountered = false;
-    auto tracked_encountered   = false;
-    for (const auto source : vM_id_may_iter->second)
+    auto       untracked_encountered = false;
+    auto       tracked_encountered   = false;
+    const auto vM_target_copy        = vM_id_may_iter->second;
+    const auto vN_target_copy        = vN_id_may_iter->second;
+
+    for (const auto source : vM_target_copy)
     {
         const auto source_may_iter = context.may_in.find(source.id);
         if (!untracked_encountered && source_may_iter == context.may_in.end())
@@ -220,7 +238,7 @@ static inline void apply_transfer_may_memcpy_memmove(const MayTransferContextBun
             tracked_encountered = true;
         }
 
-        for (const auto target : vN_id_may_iter->second)
+        for (const auto target : vN_target_copy)
         {
             auto target_may_iter = context.may_in.find(target.id);
 
@@ -228,7 +246,8 @@ static inline void apply_transfer_may_memcpy_memmove(const MayTransferContextBun
             if (source_may_iter != context.may_in.end())
             {
                 // transfer the information
-                for (const auto transfer : source_may_iter->second)
+                const auto source_target_copy = source_may_iter->second;
+                for (const auto transfer : source_target_copy)
                 {
                     if (target_may_iter == context.may_in.end())
                     {
@@ -255,7 +274,7 @@ static inline void apply_transfer_may_memcpy_memmove(const MayTransferContextBun
     // may points to information, as such we insert to all targets UNDEFINED
     if (tracked_encountered && untracked_encountered)
     {
-        for (const auto target : vN_id_may_iter->second)
+        for (const auto target : vN_target_copy)
         {
             context.may_in[target.id].insert({{grouped_objects::MERGE_UNKNOWN, false}});
         }
@@ -292,7 +311,7 @@ static inline void apply_transfer_may_copy(const MayTransferContextBundle& conte
     ASSUMPTION(!xM_id_iter->second.empty());
     if (vN_id != xM_id)
     {
-        context.may_in[vN_id] = xM_id_iter->second;
+        context.may_in.emplace(vN_id, xM_id_iter->second);
     }
 }
 
@@ -332,7 +351,7 @@ static inline void apply_transfer_may_i2p_p2i(const MayTransferContextBundle& co
         return;
     }
 
-    context.may_in[vN_id] = vM_id_may_iter->second;
+    context.may_in.emplace(vN_id, vM_id_may_iter->second);
     return;
 }
 
@@ -345,33 +364,14 @@ static inline void apply_transfer_may_moveptr(const MayTransferContextBundle& co
     const auto vM_id_may_iter = context.may_in.find(vM_id);
     if (vM_id_may_iter == context.may_in.end())
     {
-        // std::cout << "APPENDING UNDEFINED MOVEPTR: " << vN_id << " " << vM_id << std::endl;
+        std::cout << "APPENDING UNDEFINED MOVEPTR: " << vN_id << " " << vM_id << std::endl;
         context.may_in[vM_id] = {{grouped_objects::UNDEFINED}};
         context.may_in[vN_id] = {{grouped_objects::UNDEFINED}};
         return;
     }
 
-    auto vN_id_may_iter = context.may_in.find(vN_id);
-
-    for (const auto transfer : vM_id_may_iter->second)
-    {
-        if (vN_id_may_iter == context.may_in.end())
-        {
-            vN_id_may_iter = context.may_in.insert_or_assign(vN_id, MaySet{transfer}).first;
-        }
-        else
-        {
-            vN_id_may_iter->second.insert(transfer);
-        }
-
-        // extend with offset targets
-        // (we do not consider if UNDEFINED is offset since any access to it nukes the may points-to
-        // information, so we won't populate the points-to with offset UNDEFINED)
-        if (!transfer.offset_flag && transfer.id != grouped_objects::UNDEFINED)
-        {
-            vN_id_may_iter->second.insert({transfer.id, true});
-        }
-    }
+    ASSUMPTION(!vM_id_may_iter->second.empty());
+    context.may_in.emplace(vN_id, vM_id_may_iter->second);
 }
 
 static inline void apply_transfer_may_memset(const MayTransferContextBundle& context)
@@ -495,8 +495,8 @@ static inline void apply_transfer_may_va_start(const MayTransferContextBundle& c
         nuke_may(context);
         return;
     }
-
-    for (const auto& target : vN_id_may_iter->second)
+    const auto vN_targets_copy = vN_id_may_iter->second;
+    for (const auto& target : vN_targets_copy)
     {
         const auto target_may_iter = context.may_in.find(target.id);
         if (target_may_iter != context.may_in.end())
@@ -540,9 +540,9 @@ static inline void apply_transfer_may_va_arg(const MayTransferContextBundle& con
     //              VA_START instruction or a preceding VA_ARG instruction.
     ASSUMPTION(context.operands_id.size() >= 1);
     const auto vN_id = context.operands_id[0];
-    const auto vM_id = context.operands_id[0];
+    const auto vM_id = context.operands_id[1];
 
-    const auto vM_id_may_iter = context.may_in.find(vN_id);
+    auto vM_id_may_iter = context.may_in.find(vM_id);
     if (vM_id_may_iter == context.may_in.end())
     {
         std::cout << serialize_program_point(context.pp) << " NUKING VA_ARG: access to untracked"
@@ -569,7 +569,9 @@ static inline void apply_transfer_may_va_arg(const MayTransferContextBundle& con
     auto vN_id_may_iter = context.may_in.find(vN_id);
     if (vN_id_may_iter == context.may_in.end())
     {
-        context.may_in.insert_or_assign(vN_id, vM_id_may_iter->second);
+        ASSUMPTION(!vM_id_may_iter->second.empty());
+        vN_id_may_iter = context.may_in.insert_or_assign(vN_id, vM_id_may_iter->second).first;
+        vM_id_may_iter = context.may_in.find(vM_id);
     }
     else
     {
@@ -594,6 +596,7 @@ static inline void apply_transfer_may_va_copy(const MayTransferContextBundle& co
         std::cout << serialize_program_point(context.pp) << " NUKING VA_COPY: vN untracked"
                   << std::endl;
         nuke_may(context);
+        return;
     }
 
     if (!is_objectId_reachable(context, vM_id, grouped_objects::VARGARG_BLOCK,
@@ -602,9 +605,11 @@ static inline void apply_transfer_may_va_copy(const MayTransferContextBundle& co
         std::cout << serialize_program_point(context.pp)
                   << " NUKING VA_COPY: vM does not contain VARGARG_BLOCK" << std::endl;
         nuke_may(context);
+        return;
     }
 
-    for (const auto& target : vN_id_may_iter->second)
+    const auto vN_targets_copy = vN_id_may_iter->second;
+    for (const auto& target : vN_targets_copy)
     {
         if (const auto target_id_may_iter = context.may_in.find(target.id);
             target_id_may_iter != context.may_in.end())
@@ -620,6 +625,8 @@ static inline void apply_transfer_may_va_copy(const MayTransferContextBundle& co
 
 static inline void apply_transfer_may(const MayTransferContextBundle& context)
 {
+    // std::cout << serialize_program_point(context.pp) << std::endl;
+    // dump_may_set(context.may_in);
     switch (context.opcode)
     {
     case sala::Instruction::Opcode::NOP:
