@@ -4,6 +4,7 @@
 #include <optimizer/metadata/meta_entry.hpp>
 #include <optimizer/metadata/meta_keys.hpp>
 
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <unordered_map>
@@ -45,10 +46,6 @@ class Metadata
             throw std::runtime_error("Metadata key not found: " + to_string(T::key));
         }
         T* casted = dynamic_cast<T*>(iter->second.get());
-        if (!casted)
-        {
-            throw std::runtime_error("Metadata type mismatch for key: " + to_string(T::key));
-        }
         return *casted;
     }
 
@@ -62,16 +59,38 @@ class Metadata
             throw std::runtime_error("Metadata key not found: " + to_string(T::key));
         }
         const T* casted = dynamic_cast<const T*>(iter->second.get());
-        if (!casted)
-        {
-            throw std::runtime_error("Metadata type mismatch for key: " + to_string(T::key));
-        }
         return *casted;
     }
 
     template <typename T>
         requires valid_retrievable<T>
-    std::optional<T*> try_get() const
+    const T* get_raw() const
+    {
+        auto iter = data_.find(T::key);
+        if (iter == data_.end())
+        {
+            return nullptr;
+        }
+        const T* casted = dynamic_cast<const T*>(iter->second.get());
+        return casted;
+    }
+
+    template <typename T>
+        requires valid_retrievable<T>
+    std::optional<const T*> try_get() const
+    {
+        auto iter = data_.find(T::key);
+        if (iter == data_.end())
+        {
+            return std::nullopt;
+        }
+        T* casted = dynamic_cast<T*>(iter->second.get());
+        return casted ? std::optional<T*>{casted} : std::nullopt;
+    }
+
+    template <typename T>
+        requires valid_retrievable<T>
+    std::optional<const T*> try_get()
     {
         auto iter = data_.find(T::key);
         if (iter == data_.end())
