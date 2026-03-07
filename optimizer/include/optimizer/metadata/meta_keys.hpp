@@ -1,7 +1,8 @@
 #ifndef OPTIMIZER_METADATA_KEYS_HPP_INCLUDED
 #define OPTIMIZER_METADATA_KEYS_HPP_INCLUDED
 
-#include <utility/invariants.hpp>
+#include <cstdint>
+#include <utility/assumptions.hpp>
 
 #include <string>
 
@@ -13,6 +14,7 @@ enum class MetaKey : uint8_t
     TRANSLATION_SALA_TO_IR,
 
     POINTS_TO,
+    LOCAL_REACHABILITY,
 };
 
 inline std::string to_string(MetaKey key)
@@ -23,8 +25,9 @@ inline std::string to_string(MetaKey key)
         return "TRANSLATION_SALA_TO_IR";
     case MetaKey::POINTS_TO:
         return "POINTS_TO";
+
     default:
-        UNREACHABLE();
+        return "<<ERROR>>: undefined for: " + std::to_string(static_cast<int>(key));
     }
 }
 
