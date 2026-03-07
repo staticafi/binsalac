@@ -45,13 +45,14 @@ struct GlobalPointsToAnalysis::Impl
     {
         objectId id = 0;
 
-        auto assign_object_ids_variables =
-                [&](const auto& variables, auto& target_mapping, utils::RegionTag region) mutable
+        auto assign_object_ids_variables = [&](const program::VariableIRListS& variables,
+                                               auto&                           target_mapping,
+                                               utils::RegionTag                region) mutable
         {
             for (const auto& variable : variables)
             {
                 target_mapping.emplace(id, Object{id, region});
-                operand_to_id_.emplace(variable, id);
+                operand_to_id_.emplace(variable.get(), id);
                 auto points_to_meta = std::make_unique<metadata::points_to::VariableMeta>();
                 points_to_meta->id  = id++;
                 variable->get_metadata().set(std::move(points_to_meta));
@@ -61,7 +62,7 @@ struct GlobalPointsToAnalysis::Impl
         for (const auto& constant : sala_ir_->get_constants())
         {
             global_objects_.emplace(id, Object{id, utils::RegionTag::Constant});
-            operand_to_id_.emplace(constant, id);
+            operand_to_id_.emplace(constant.get(), id);
             auto points_to_meta = std::make_unique<metadata::points_to::ConstantMeta>();
             points_to_meta->id  = id++;
             constant->get_metadata().set(std::move(points_to_meta));
@@ -74,15 +75,7 @@ struct GlobalPointsToAnalysis::Impl
                                     utils::RegionTag::Local);
         // NOTE: look into what if no ids were assigned ??
         last_local_id_ = id - 1;
-        for (const auto& basic_block : static_init_->get_basic_blocks())
-        {
-            for (const auto& instruction : basic_block->get_instructions())
-            {
-                fill_hot_operands_access(instruction);
-            }
-        }
-
-        NB_ = static_init_->get_basic_blocks().size();
+        NB_            = static_init_->get_basic_blocks().size();
     }
 
     void build_flattened_cfg()
@@ -353,11 +346,9 @@ struct GlobalPointsToAnalysis::Impl
     inline objectId get_operand_id(const program::InstructionIR_sptr& instruction,
                                    const std::size_t                  position)
     {
-        const auto hot_operand_iter = hot_operands_access_.find(instruction);
-        ASSUMPTION(hot_operand_iter != hot_operands_access_.end());
 
-        const auto& operand = hot_operand_iter->second.at(position);
-        if (std::holds_alternative<program::FunctionIR_sptr>(operand))
+        const auto& operand = instruction->get_operands().at(position);
+        if (std::holds_alternative<program::FunctionIR_raw>(operand))
         {
             return utils::grouped_objects::FUNCTION;
         }
@@ -366,40 +357,6 @@ struct GlobalPointsToAnalysis::Impl
             const auto operand_id_iter = operand_to_id_.find(operand);
             ASSUMPTION(operand_id_iter != operand_to_id_.end());
             return operand_id_iter->second;
-        }
-    }
-
-    void fill_hot_operands_access(const program::InstructionIR_sptr& instruction)
-    {
-        auto required_operands_size = utils::get_relevant_operands_count(*instruction);
-        if (required_operands_size <= 0)
-        {
-            return;
-        }
-
-        auto& hot_operands = hot_operands_access_[instruction];
-        hot_operands.reserve(required_operands_size);
-        for (auto operand_iter = instruction->get_operands().begin();
-             required_operands_size > 0 && operand_iter != instruction->get_operands().end();
-             ++operand_iter, --required_operands_size)
-        {
-            if (const auto& variable_wptr = std::get_if<program::VariableIR_wptr>(&(*operand_iter)))
-            {
-                auto variable_sptr = variable_wptr->lock();
-                ASSUMPTION(variable_sptr != nullptr);
-                hot_operands.emplace_back(std::move(variable_sptr));
-            }
-            else if (const auto& constant_wptr =
-                             std::get_if<program::ConstantIR_wptr>(&(*operand_iter)))
-            {
-                auto constant_sptr = constant_wptr->lock();
-                ASSUMPTION(constant_sptr != nullptr);
-                hot_operands.emplace_back(std::move(constant_sptr));
-            }
-            else if (const auto& operand = std::get_if<program::FunctionIR_wptr>(&(*operand_iter)))
-            {
-                hot_operands.emplace_back(operand->lock());
-            }
         }
     }
 
@@ -413,7 +370,7 @@ struct GlobalPointsToAnalysis::Impl
     utils::ObjectPool global_objects_;
     utils::ObjectPool local_objects_;
 
-    std::unordered_map<program::OperandIR_sptr, objectId> operand_to_id_{};
+    std::unordered_map<program::OperandIR_raw, objectId> operand_to_id_{};
 
     std::vector<objectId> operands_id_scratch_;
     objectId              last_local_id_;
@@ -429,8 +386,6 @@ struct GlobalPointsToAnalysis::Impl
     std::vector<program::BasicBlockIR_sptr>                     blocks_;
     std::vector<std::vector<std::size_t>>                       preds_;
     std::unordered_map<program::BasicBlockIR_sptr, std::size_t> index_of_;
-    std::map<program::InstructionIR_sptr, std::vector<program::OperandIR_sptr>>
-            hot_operands_access_;
 };
 
 GlobalPointsToAnalysis::GlobalPointsToAnalysis() = default;

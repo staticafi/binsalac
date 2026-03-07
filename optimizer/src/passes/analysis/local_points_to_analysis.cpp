@@ -74,9 +74,11 @@ struct FunctionContext
                     may_in.insert(std::make_pair(
                             param, utils::MaySet{{grouped_objects::OUT_OF_LOCAL_SCOPE, false}}));
                 }
-                may_in[grouped_objects::OUT_OF_LOCAL_SCOPE] = utils::MaySet{
-                        {grouped_objects::OUT_OF_LOCAL_SCOPE, false},
-                };
+
+                for (const auto elem : utils::points_to::grouped_objects::ABSTRACT_NODES)
+                {
+                    may_in[elem] = utils::MaySet{{.id = elem, .offset_flag = false}};
+                }
                 first_pred_found = true;
             }
 
@@ -134,7 +136,7 @@ struct FunctionContext
             const auto& out_must = out_must_[end_bb];
             const auto& out_may  = out_may_[end_bb];
 
-            for (const auto& [object_id, object_info] : global_objects_)
+            for (const auto& [object_id, object_info] : *global_objects_)
             {
                 // MAY points to
                 {
@@ -210,31 +212,19 @@ struct FunctionContext
         load_global_data();
         init_states();
         init_local_objects();
-        init_hot_operands_access();
         build_flattened_cfg();
-    }
-
-    void init_hot_operands_access()
-    {
-        hot_operands_access_.clear();
-        for (const auto& basic_block : function_->get_basic_blocks())
-        {
-            for (const auto& instruction : basic_block->get_instructions())
-            {
-                fill_hot_operands_access(instruction);
-            }
-        }
     }
 
     void init_local_objects()
     {
-        objectId id                      = id_start_;
-        auto assign_object_ids_variables = [&](const auto& variables, const utils::RegionTag region)
+        objectId id = id_start_;
+
+        auto assign_object_ids_variables =
+                [&](const program::VariableIRListS& variables, const utils::RegionTag region)
         {
             for (const auto& variable : variables)
             {
                 local_objects_.emplace(id, Object{id, region});
-                operand_to_id_.emplace(variable, id);
                 auto points_to_meta = std::make_unique<metadata::points_to::VariableMeta>();
                 points_to_meta->id  = id++;
                 variable->get_metadata().set(std::move(points_to_meta));
@@ -243,7 +233,6 @@ struct FunctionContext
         for (const auto& parameter : function_->get_parameters())
         {
             local_objects_.emplace(id, Object{id, utils::RegionTag::Parameter});
-            operand_to_id_.emplace(parameter, id);
             auto points_to_meta = std::make_unique<metadata::points_to::VariableMeta>();
             points_to_meta->id  = id;
             if (parameter->get_num_bytes() == function_->get_program()->get_num_cpu_bits() / 8)
@@ -259,26 +248,12 @@ struct FunctionContext
 
     void load_global_data()
     {
-        const auto& program_metadata =
+        auto& program_metadata =
                 function_->get_program()->get_metadata().get<metadata::points_to::ProgramMeta>();
 
-        global_objects_   = program_metadata.global_objects;
+        global_objects_   = &program_metadata.global_objects;
         global_must_seed_ = program_metadata.must_out;
         global_may_seed_  = program_metadata.may_out;
-
-        for (const auto& constant : function_->get_program()->get_constants())
-        {
-
-            operand_to_id_.emplace(
-                    constant, constant->get_metadata().get<metadata::points_to::ConstantMeta>().id);
-        };
-        for (const auto& static_var : function_->get_program()->get_static_vars())
-        {
-
-            operand_to_id_.emplace(
-                    static_var,
-                    static_var->get_metadata().get<metadata::points_to::VariableMeta>().id);
-        };
     }
 
     void init_states()
@@ -289,40 +264,6 @@ struct FunctionContext
 
         in_may_scratch_.clear();
         in_must_scratch_.clear();
-    }
-
-    void fill_hot_operands_access(const program::InstructionIR_sptr& instruction)
-    {
-        auto required_operands_size = utils::get_relevant_operands_count(*instruction);
-        if (required_operands_size <= 0)
-        {
-            return;
-        }
-
-        auto& hot_operands = hot_operands_access_[instruction];
-        hot_operands.reserve(required_operands_size);
-        for (auto operand_iter = instruction->get_operands().begin();
-             required_operands_size > 0 && operand_iter != instruction->get_operands().end();
-             ++operand_iter, --required_operands_size)
-        {
-            if (const auto& variable_wptr = std::get_if<program::VariableIR_wptr>(&(*operand_iter)))
-            {
-                auto variable_sptr = variable_wptr->lock();
-                ASSUMPTION(variable_sptr != nullptr);
-                hot_operands.emplace_back(std::move(variable_sptr));
-            }
-            else if (const auto& constant_wptr =
-                             std::get_if<program::ConstantIR_wptr>(&(*operand_iter)))
-            {
-                auto constant_sptr = constant_wptr->lock();
-                ASSUMPTION(constant_sptr != nullptr);
-                hot_operands.emplace_back(std::move(constant_sptr));
-            }
-            else if (const auto& operand = std::get_if<program::FunctionIR_wptr>(&(*operand_iter)))
-            {
-                hot_operands.emplace_back(operand->lock());
-            }
-        }
     }
 
     void build_flattened_cfg()
@@ -392,25 +333,32 @@ struct FunctionContext
             wl.pop();
             in_wl[b] = 0;
 
-            auto& may        = in_may_scratch_;
-            auto& must       = in_must_scratch_;
+            auto& may_in     = in_may_scratch_;
+            auto& must_in    = in_must_scratch_;
             auto  first_pred = false;
             if (b == entry_ && first_visit_[b])
             {
-                may = global_may_seed_;
+                may_in = global_may_seed_;
                 for (const auto param : assumed_ptr_params_)
                 {
-                    may.insert(std::make_pair(
-                            param, utils::MaySet{{grouped_objects::OUT_OF_LOCAL_SCOPE, false}}));
+                    may_in.insert(std::make_pair(
+                            param, utils::MaySet{{.id = grouped_objects::OUT_OF_LOCAL_SCOPE,
+                                                  .offset_flag = false}}));
                 }
-                may[grouped_objects::OUT_OF_LOCAL_SCOPE] = utils::MaySet{
-                        {grouped_objects::OUT_OF_LOCAL_SCOPE, false},
-                };
-                must       = global_must_seed_;
+
+                for (const auto elem : utils::points_to::grouped_objects::ABSTRACT_NODES)
+                {
+                    may_in[elem] = utils::MaySet{{.id = elem, .offset_flag = false}};
+                }
+
+                // may[grouped_objects::OUT_OF_LOCAL_SCOPE] = utils::MaySet{
+                //         {.id = grouped_objects::OUT_OF_LOCAL_SCOPE, .offset_flag = false},
+                // };
+                must_in    = global_must_seed_;
                 first_pred = true;
             }
 
-            for (auto p : preds_[b])
+            for (const auto p : preds_[b])
             {
                 if (first_visit_[p])
                 {
@@ -419,22 +367,22 @@ struct FunctionContext
 
                 if (!first_pred)
                 {
-                    must       = out_must_[p];
-                    may        = out_may_[p];
+                    must_in    = out_must_[p];
+                    may_in     = out_may_[p];
                     first_pred = true;
                 }
                 else
                 {
-                    utils::state_join_or_strict(may, out_may_[p]);
-                    utils::state_join_and(must, out_must_[p]);
+                    utils::state_join_or_strict(may_in, out_may_[p]);
+                    utils::state_join_and(must_in, out_must_[p]);
                 }
             }
             // clear states only if necessary (not set)
             if (!first_pred)
             {
                 ASSUMPTION(b == entry_);
-                may.clear();
-                must.clear();
+                may_in.clear();
+                must_in.clear();
             }
 
             // apply transfer functions modifying may/must-IN to OUT inplace
@@ -448,9 +396,9 @@ struct FunctionContext
                 utils::MayTransferContextBundle may_transfer_context{
                         .pp             = {.function = _id, .bb = b, .instr = instruciton_id},
                         .opcode         = instruction->get_opcode(),
-                        .may_in         = may,
-                        .must_in        = MustState{must},
-                        .global_objects = global_objects_,
+                        .may_in         = may_in,
+                        .must_in        = MustState{must_in},
+                        .global_objects = *global_objects_,
                         .local_objects  = local_objects_,
                         .operands_id    = operands_id_scratch_,
                         .operands_count = relevant_ops_size,
@@ -459,9 +407,9 @@ struct FunctionContext
 
                 utils::MustTransferContextBundle must_transfer_context{
                         .opcode         = instruction->get_opcode(),
-                        .must_in        = must,
-                        .may_in         = may,
-                        .global_objects = global_objects_,
+                        .must_in        = must_in,
+                        .may_in         = may_in,
+                        .global_objects = *global_objects_,
                         .local_objects  = local_objects_,
                         .operands_id    = operands_id_scratch_,
                         .operands_count = relevant_ops_size,
@@ -471,13 +419,14 @@ struct FunctionContext
                 // WARNING: order of calls is important since we modify the states in-place
                 utils::apply_transfer_must(must_transfer_context);
                 utils::apply_transfer_may(may_transfer_context);
+                ++instruciton_id;
             }
 
             first_visit_[b] = false;
-            if (out_may_[b] != may || out_must_[b] != must)
+            if (out_may_[b] != may_in || out_must_[b] != must_in)
             {
-                std::swap(out_may_[b], may);
-                std::swap(out_must_[b], must);
+                std::swap(out_may_[b], may_in);
+                std::swap(out_must_[b], must_in);
 
                 for (const auto& weak_succ : blocks_[b]->get_successors())
                 {
@@ -517,19 +466,22 @@ struct FunctionContext
     inline objectId get_operand_id(const program::InstructionIR_sptr& instruction,
                                    const std::size_t                  position)
     {
-        const auto hot_operand_iter = hot_operands_access_.find(instruction);
-        ASSUMPTION(hot_operand_iter != hot_operands_access_.end());
-
-        const auto& operand = hot_operand_iter->second.at(position);
-        if (std::holds_alternative<program::FunctionIR_sptr>(operand))
+        const auto operand_raw = instruction->get_operands().at(position);
+        if (std::holds_alternative<program::FunctionIR_raw>(operand_raw))
         {
             return grouped_objects::FUNCTION;
         }
+        else if (const auto variable_raw = std::get_if<program::VariableIR_raw>(&operand_raw))
+        {
+            return (*variable_raw)->get_metadata().get<metadata::points_to::VariableMeta>().id;
+        }
+        else if (const auto constant_raw = std::get_if<program::ConstantIR_raw>(&operand_raw))
+        {
+            return (*constant_raw)->get_metadata().get<metadata::points_to::ConstantMeta>().id;
+        }
         else
         {
-            const auto operand_id_iter = operand_to_id_.find(operand);
-            ASSUMPTION(operand_id_iter != operand_to_id_.end());
-            return operand_id_iter->second;
+            ASSUMPTION(false);
         }
     }
 
@@ -545,12 +497,11 @@ struct FunctionContext
     MayState  global_may_seed_;
     MustState global_must_seed_;
 
-    utils::ObjectPool global_objects_;
-    utils::ObjectPool local_objects_;
+    utils::ObjectPool* global_objects_{};
+    utils::ObjectPool  local_objects_;
 
-    std::unordered_map<program::OperandIR_sptr, objectId> operand_to_id_{};
-    std::unordered_set<objectId>                          assumed_ptr_params_;
-    std::unordered_set<std::size_t>                       func_end_bbs;
+    std::unordered_set<objectId>    assumed_ptr_params_;
+    std::unordered_set<std::size_t> func_end_bbs;
 
     std::vector<MayState>  out_may_;
     std::vector<MustState> out_must_;
@@ -566,8 +517,6 @@ struct FunctionContext
     std::vector<program::BasicBlockIR_sptr>                     blocks_;
     std::vector<std::vector<std::size_t>>                       preds_;
     std::unordered_map<program::BasicBlockIR_sptr, std::size_t> index_of_;
-    std::map<program::InstructionIR_sptr, std::vector<program::OperandIR_sptr>>
-            hot_operands_access_;
 };
 } // namespace
 
