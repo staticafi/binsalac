@@ -188,7 +188,7 @@ static inline void apply_transfer_must_memcpy_memmove(const MustTransferContextB
 
     INVARIANT(vN_id_may_iter != context.may_in.end());
     // We cannot track this reliably
-    for (const auto target : vN_id_may_iter->second)
+    for (const auto& target : vN_id_may_iter->second)
     {
         context.must_in.erase(target.id);
     }
@@ -202,11 +202,6 @@ static inline void apply_transfer_must_moveptr(const MustTransferContextBundle& 
 
     // we can't proivde reliable must points to information about the offset
     // (no tracking of value that the pointer is moved by)
-    if (const auto vN_id_must_iter = context.must_in.find(vN_id);
-        vN_id_must_iter != context.must_in.end())
-    {
-        vN_id_must_iter->second = {vN_id_must_iter->second.id, true};
-    }
     context.must_in.erase(vN_id);
 }
 
@@ -339,6 +334,7 @@ static inline void apply_transfer_must_va_arg(const MustTransferContextBundle& c
 
 static inline void apply_transfer_must_va_copy(const MustTransferContextBundle& context)
 {
+    // TODO: ?
 }
 
 static inline void apply_transfer_must_call(const MustTransferContextBundle& context)
