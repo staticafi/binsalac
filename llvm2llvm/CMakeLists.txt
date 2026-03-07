@@ -16,6 +16,7 @@ target_link_libraries(${THIS_TARGET_NAME}
     llvmutl
     ${BOOST_LIST_OF_LIBRARIES_TO_LINK_WITH}
     ${LLVM_LIST_OF_LIBRARIES_TO_LINK_WITH}
+    utility
     )
 
 # set_target_properties(${THIS_TARGET_NAME} PROPERTIES
