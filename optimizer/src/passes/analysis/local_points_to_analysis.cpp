@@ -7,19 +7,16 @@
 #include <optimizer/programIR/function_ir.hpp>
 #include <optimizer/programIR/instruction_ir.hpp>
 #include <optimizer/programIR/variable_ir.hpp>
-#include <optimizer/utils/points_to_import.hpp>
+#include <optimizer/utils/points_to/import.hpp>
 
 #include <utility/assumptions.hpp>
 #include <utility/timeprof.hpp>
 
 #include <algorithm>
-#include <execution>
-#include <map>
 #include <queue>
 
 namespace optimizer::passes
 {
-
 namespace grouped_objects = utils::grouped_objects;
 using utils::MayState;
 using utils::MustState;
@@ -34,176 +31,79 @@ struct FunctionContext
     FunctionContext(std::size_t function_id, program::FunctionIR_sptr function, int id_start)
         : _id{function_id}, function_{std::move(function)}, id_start_{id_start}
     {
-        // TODO: think about using pmr may must scratch states to avoid allocation
-    }
-
-    void run()
-    {
         if (function_->get_initializer_flag())
         {
-            // We assume this was filled by the GlobalPointsToAnalysis
-            return;
+            throw std::logic_error("Static initializer is not part of the local analysis");
         }
+
         init_data();
-        solve();
     }
 
-    void resolve(const MustState& global_must_seed, const MayState& global_may_seed)
+    void run(MustState global_must_seed, MayState global_may_seed)
     {
-        global_may_seed_  = global_may_seed;
-        global_must_seed_ = global_must_seed;
+        global_may_seed_  = std::move(global_may_seed);
+        global_must_seed_ = std::move(global_must_seed);
         solve();
-        materialize();
     }
 
     void materialize()
     {
         for (std::size_t b = 0; b < NB_; ++b)
         {
-            // IN from final OUTs of preds
-            MayState  may_in{};
-            MustState must_in{};
-            bool      first_pred_found = false;
-            if (b == entry_)
-            {
-                must_in = global_must_seed_;
-                may_in  = global_may_seed_;
-                // FIXME: do this somehow better
-                for (const auto param : assumed_ptr_params_)
-                {
-                    may_in.insert(std::make_pair(
-                            param, utils::MaySet{{grouped_objects::OUT_OF_LOCAL_SCOPE, false}}));
-                }
-
-                for (const auto elem : utils::points_to::grouped_objects::ABSTRACT_NODES)
-                {
-                    may_in[elem] = utils::MaySet{{.id = elem, .offset_flag = false}};
-                }
-                first_pred_found = true;
-            }
-
-            for (auto p : preds_[b])
-            {
-                if (!first_pred_found)
-                {
-                    may_in           = out_may_[p];
-                    first_pred_found = true;
-                }
-                else
-                {
-                    utils::state_join_or_strict(may_in, out_may_[p]);
-                }
-            }
-
-            if (!preds_[b].empty())
-            {
-                must_in = out_must_[preds_[b][0]];
-                for (std::size_t j = 1; j < preds_[b].size(); ++j)
-                {
-                    utils::state_join_and(must_in, out_must_[preds_[b][j]]);
-                }
-            }
-
-            auto bb_points_to_meta     = std::make_unique<metadata::points_to::BasicBlockMeta>();
-            bb_points_to_meta->may_in  = std::move(may_in);
-            bb_points_to_meta->must_in = std::move(must_in);
-            blocks_[b]->get_metadata().set(std::move(bb_points_to_meta));
+            auto [must_in, may_in] = reconstruct_materialized_in_state(b);
+            attach_block_points_to_metadata(b, std::move(must_in), std::move(may_in));
         }
 
-        auto function_meta           = std::make_unique<metadata::points_to::FunctionMeta>();
-        function_meta->local_objects = std::move(local_objects_);
-        function_->get_metadata().set(std::move(function_meta));
+        attach_function_points_to_metadata();
     }
 
-    std::pair<MustState, MayState> get_after_global_states()
+    std::optional<std::pair<MustState, MayState>> get_after_global_states()
     {
-        MustState result_must;
-        MustState bb_out_global_must_scratch;
-        result_must.reserve(global_must_seed_.size());
-        bb_out_global_must_scratch.reserve(global_must_seed_.size());
+        std::optional<MustState> result_must;
+        std::optional<MayState>  result_may;
 
-        MayState result_may;
-        MayState bb_out_global_may_scratch;
-        result_may.reserve(global_may_seed_.size());
+        MustState bb_out_global_must_scratch;
+        MayState  bb_out_global_may_scratch;
+
+        bb_out_global_must_scratch.reserve(global_must_seed_.size());
         bb_out_global_may_scratch.reserve(global_may_seed_.size());
 
-        for (const auto end_bb : func_end_bbs)
+        for (const auto exit_bb : exit_basic_blocks)
         {
-            // std::cout << end_bb << std::endl;
-            bb_out_global_may_scratch.clear();
-            bb_out_global_must_scratch.clear();
-
-            const auto& out_must = out_must_[end_bb];
-            const auto& out_may  = out_may_[end_bb];
-
-            for (const auto& [object_id, object_info] : *global_objects_)
+            if (!reachable_[exit_bb] || !has_out_[exit_bb])
             {
-                // MAY points to
-                {
-                    const auto                        object_end_bb_iter = out_may.find(object_id);
-                    std::optional<MayState::iterator> bb_out_may_iter;
-                    const auto                        add_to_result = [&](const utils::Target& elem)
-                    {
-                        if (bb_out_may_iter.has_value())
-                        {
-                            bb_out_may_iter.value()->second.emplace(elem);
-                        }
-                        else
-                        {
-                            const auto [iter, _] = bb_out_global_may_scratch.insert(
-                                    std::make_pair(object_id, utils::points_to::MaySet{elem}));
-                            bb_out_may_iter = iter;
-                        }
-                    };
-                    if (object_end_bb_iter != out_may.end())
-                    {
-                        for (const auto target : object_end_bb_iter->second)
-                        {
-                            if (local_objects_.contains(target.id))
-                            {
-                                add_to_result({grouped_objects::OUT_OF_GLOBAL_SCOPE, false});
-                            }
-                            else if (target.id == grouped_objects::OUT_OF_LOCAL_SCOPE)
-                            {
-                                add_to_result({grouped_objects::UNKOWN_GLOBAL, false});
-                            }
-                            else
-                            {
-                                add_to_result(target);
-                            }
-                        }
-                    }
-                }
-                // MUST points to
-                {
-                    if (const auto object_end_bb_iter = out_must.find(object_id);
-                        object_end_bb_iter != out_must.end())
-                    {
-                        bb_out_global_must_scratch[object_id] = object_end_bb_iter->second;
-                    }
-                }
+                continue;
             }
 
-            if (result_must.empty())
+            export_exit_block_to_global_state(exit_bb, bb_out_global_must_scratch,
+                                              bb_out_global_may_scratch);
+
+            if (!result_must.has_value())
             {
                 result_must = bb_out_global_must_scratch;
             }
             else
             {
-                utils::points_to::state_join_and(result_must, bb_out_global_must_scratch);
+                utils::points_to::state_join_and(result_must.value(), bb_out_global_must_scratch);
             }
 
-            if (result_may.empty())
+            if (!result_may.has_value())
             {
                 result_may = bb_out_global_may_scratch;
             }
             else
             {
-                utils::points_to::state_join_or_strict(result_may, bb_out_global_may_scratch);
+                utils::points_to::state_join_or_strict(result_may.value(),
+                                                       bb_out_global_may_scratch);
             }
         }
 
-        return std::make_pair(std::move(result_must), std::move(result_may));
+        if (!result_must.has_value() || !result_may.has_value())
+        {
+            return {};
+        }
+
+        return {{std::move(result_must.value()), std::move(result_may.value())}};
     }
 
   private:
@@ -213,8 +113,178 @@ struct FunctionContext
         init_states();
         init_local_objects();
         build_flattened_cfg();
+        compute_reachable_blocks();
     }
 
+    void compute_reachable_blocks()
+    {
+        reachable_.assign(NB_, false);
+
+        if (NB_ == 0)
+        {
+            return;
+        }
+
+        std::queue<std::size_t> wl;
+        wl.push(entry_);
+        reachable_[entry_] = true;
+
+        while (!wl.empty())
+        {
+            const auto b = wl.front();
+            wl.pop();
+
+            for (const auto& weak_succ : blocks_[b]->get_successors())
+            {
+                if (auto succ = weak_succ.lock())
+                {
+                    const auto it = index_of_.find(succ);
+                    ASSUMPTION(it != index_of_.end());
+
+                    const auto succ_idx = it->second;
+                    if (!reachable_[succ_idx])
+                    {
+                        reachable_[succ_idx] = true;
+                        wl.push(succ_idx);
+                    }
+                }
+            }
+        }
+    }
+
+    void export_global_object_may(const objectId object_id, const MayState& local_out_may,
+                                  MayState& exported_may) const
+    {
+        const auto object_end_bb_iter = local_out_may.find(object_id);
+        if (object_end_bb_iter == local_out_may.end())
+        {
+            return;
+        }
+
+        if (object_end_bb_iter->second.is_top)
+        {
+            exported_may.insert_or_assign(object_id, utils::MayValue::top());
+            return;
+        }
+
+        std::optional<MayState::iterator> exported_iter;
+
+        const auto add_to_result = [&](const utils::Target& elem)
+        {
+            if (exported_iter.has_value())
+            {
+                exported_iter.value()->second.insert(elem);
+            }
+            else
+            {
+                const auto [iter, inserted] = exported_may.insert(
+                        std::make_pair(object_id, utils::MayValue::singleton(elem)));
+                (void)inserted;
+                exported_iter = iter;
+            }
+        };
+
+        for (const auto target : object_end_bb_iter->second)
+        {
+            if (global_objects_->contains(target.id) || target.id == grouped_objects::HEAP)
+            {
+                add_to_result(target);
+            }
+            else
+            {
+                add_to_result({grouped_objects::OUT_OF_GLOBAL_SCOPE, false});
+            }
+        }
+    }
+
+    void export_global_object_must(const objectId object_id, const MustState& local_out_must,
+                                   MustState& exported_must) const
+    {
+        const auto object_end_bb_iter = local_out_must.find(object_id);
+        if (object_end_bb_iter == local_out_must.end())
+        {
+            return;
+        }
+
+        const auto target = object_end_bb_iter->second;
+        if (global_objects_->contains(target.id) || target.id == grouped_objects::HEAP)
+        {
+            exported_must[object_id] = target;
+        }
+    }
+
+    void export_exit_block_to_global_state(const std::size_t end_bb, MustState& exported_must,
+                                           MayState& exported_may) const
+    {
+        exported_must.clear();
+        exported_may.clear();
+
+        const auto& out_must = out_must_[end_bb];
+        const auto& out_may  = out_may_[end_bb];
+
+        for (const auto& [object_id, object_info] : *global_objects_)
+        {
+            export_global_object_may(object_id, out_may, exported_may);
+            export_global_object_must(object_id, out_must, exported_must);
+        }
+    }
+
+    void attach_block_points_to_metadata(const std::size_t b, MustState must_in, MayState may_in)
+    {
+        auto bb_points_to_meta     = std::make_unique<metadata::points_to::BasicBlockMeta>();
+        bb_points_to_meta->may_in  = std::move(may_in);
+        bb_points_to_meta->must_in = std::move(must_in);
+        blocks_[b]->get_metadata().set(std::move(bb_points_to_meta));
+    }
+
+    void attach_function_points_to_metadata()
+    {
+        auto function_meta           = std::make_unique<metadata::points_to::FunctionMeta>();
+        function_meta->local_objects = std::move(local_objects_);
+        function_->get_metadata().set(std::move(function_meta));
+    }
+
+    std::pair<MustState, MayState> reconstruct_materialized_in_state(const std::size_t b) const
+    {
+        MayState  may_in{};
+        MustState must_in{};
+
+        bool in_initialized = false;
+
+        if (b == entry_)
+        {
+            build_entry_seed_states(must_in, may_in);
+            in_initialized = true;
+        }
+
+        for (const auto p : preds_[b])
+        {
+            if (!has_out_[p])
+            {
+                continue;
+            }
+
+            if (!in_initialized)
+            {
+                must_in        = out_must_[p];
+                may_in         = out_may_[p];
+                in_initialized = true;
+            }
+            else
+            {
+                utils::state_join_and(must_in, out_must_[p]);
+                utils::state_join_or_strict(may_in, out_may_[p]);
+            }
+        }
+
+        if (!in_initialized)
+        {
+            must_in.clear();
+            may_in.clear();
+        }
+
+        return {std::move(must_in), std::move(may_in)};
+    }
     void init_local_objects()
     {
         objectId id = id_start_;
@@ -235,10 +305,7 @@ struct FunctionContext
             local_objects_.emplace(id, Object{id, utils::RegionTag::Parameter});
             auto points_to_meta = std::make_unique<metadata::points_to::VariableMeta>();
             points_to_meta->id  = id;
-            if (parameter->get_num_bytes() == function_->get_program()->get_num_cpu_bits() / 8)
-            {
-                assumed_ptr_params_.insert(id);
-            }
+            assumed_ptr_params_.insert(id);
             ++id;
             parameter->get_metadata().set(std::move(points_to_meta));
         }
@@ -251,9 +318,7 @@ struct FunctionContext
         auto& program_metadata =
                 function_->get_program()->get_metadata().get<metadata::points_to::ProgramMeta>();
 
-        global_objects_   = &program_metadata.global_objects;
-        global_must_seed_ = program_metadata.must_out;
-        global_may_seed_  = program_metadata.may_out;
+        global_objects_ = &program_metadata.global_objects;
     }
 
     void init_states()
@@ -262,14 +327,22 @@ struct FunctionContext
         out_may_.assign(NB_, {});
         out_must_.assign(NB_, {});
 
+        has_out_.assign(NB_, false);
+
         in_may_scratch_.clear();
         in_must_scratch_.clear();
     }
 
     void build_flattened_cfg()
     {
-        // blocks_ + index_of_
         NB_ = function_->get_basic_blocks().size();
+        build_block_indexing();
+        build_predecessor_lists_and_exit_blocks();
+        detect_entry_block();
+    }
+
+    void build_block_indexing()
+    {
         blocks_.clear();
         blocks_.reserve(NB_);
 
@@ -280,37 +353,187 @@ struct FunctionContext
 
         index_of_.clear();
         index_of_.reserve(NB_);
+
         for (std::size_t i = 0; i < NB_; ++i)
         {
             index_of_[blocks_[i]] = i;
         }
+    }
 
-        // preds_
+    void build_predecessor_lists_and_exit_blocks()
+    {
         preds_.assign(NB_, {});
+        exit_basic_blocks.clear();
+
         for (std::size_t i = 0; i < NB_; ++i)
         {
             if (blocks_[i]->get_successors().empty())
             {
-                func_end_bbs.insert(i);
+                exit_basic_blocks.insert(i);
             }
 
             for (const auto& wp : blocks_[i]->get_predecessors())
             {
                 auto sp = wp.lock();
                 ASSUMPTION(sp != nullptr);
-                auto it = index_of_.find(sp);
+
+                const auto it = index_of_.find(sp);
                 ASSUMPTION(it != index_of_.end());
+
                 preds_[i].push_back(it->second);
             }
         }
+    }
 
-        // entry_
+    void detect_entry_block()
+    {
         entry_ = 0;
+
         if (auto eb = function_->get_entry_basic_block())
         {
-            auto it = index_of_.find(eb);
+            const auto it = index_of_.find(eb);
             ASSUMPTION(it != index_of_.end());
             entry_ = it->second;
+        }
+    }
+
+    void build_entry_seed_states(MustState& must_in, MayState& may_in) const
+    {
+        must_in = global_must_seed_;
+        may_in  = global_may_seed_;
+
+        for (const auto param : assumed_ptr_params_)
+        {
+            may_in.insert_or_assign(
+                    param, utils::make_singleton(grouped_objects::OUT_OF_LOCAL_SCOPE, false));
+        }
+    }
+
+    void build_solver_in_state(const std::size_t b, MustState& must_in, MayState& may_in)
+    {
+        must_in.clear();
+        may_in.clear();
+
+        bool in_initialized = false;
+
+        if (b == entry_)
+        {
+            build_entry_seed_states(must_in, may_in);
+            in_initialized = true;
+        }
+
+        for (const auto p : preds_[b])
+        {
+            if (!has_out_[p])
+            {
+                continue;
+            }
+
+            if (!in_initialized)
+            {
+                must_in        = out_must_[p];
+                may_in         = out_may_[p];
+                in_initialized = true;
+            }
+            else
+            {
+                utils::state_join_and(must_in, out_must_[p]);
+                utils::state_join_or_strict(may_in, out_may_[p]);
+            }
+        }
+
+        if (!in_initialized)
+        {
+            must_in.clear();
+            may_in.clear();
+        }
+    }
+
+    void apply_block_transfers(const std::size_t b, MustState& must_in, MayState& may_in)
+    {
+        std::size_t instruction_id = 0;
+
+        for (const auto& instruction : blocks_[b]->get_instructions())
+        {
+            const auto relevant_ops_size = fill_operands_id(instruction);
+
+            utils::MayTransferContextBundle may_transfer_context{
+                    .pp             = {.function = _id, .bb = b, .instr = instruction_id},
+                    .opcode         = instruction->get_opcode(),
+                    .may_in         = may_in,
+                    .must_in        = MustState{must_in},
+                    .global_objects = *global_objects_,
+                    .local_objects  = local_objects_,
+                    .operands_id    = operands_id_scratch_,
+                    .operands_count = relevant_ops_size,
+                    .last_local_id  = last_local_id_,
+            };
+
+            utils::MustTransferContextBundle must_transfer_context{
+                    .opcode         = instruction->get_opcode(),
+                    .must_in        = must_in,
+                    .may_in         = may_in,
+                    .global_objects = *global_objects_,
+                    .local_objects  = local_objects_,
+                    .operands_id    = operands_id_scratch_,
+                    .operands_count = relevant_ops_size,
+                    .last_local_id  = last_local_id_,
+            };
+
+            utils::apply_transfer_must(must_transfer_context);
+            utils::apply_transfer_may(may_transfer_context);
+            ++instruction_id;
+        }
+    }
+
+    bool block_out_changed(const std::size_t b, const MustState& must_in,
+                           const MayState& may_in) const
+    {
+        // if (out_may_[b] != may_in)
+        // {
+        //     std::cout << "BB:" << b << "BEFORE MAYSTATE\n";
+        //     dump_may_set(out_may_[b]);
+        //     std::cout << "BB:" << b << "AFTER MAYSTATE\n";
+        //     dump_may_set(may_in);
+        // }
+        // else if (out_must_[b] != must_in)
+        // {
+        //     std::cout << "BB:" << b << "BEFORE MUST STATE \n";
+        //     dump_must_set(out_must_[b]);
+        //     std::cout << "BB:" << b << "AFTER MUST STATE\n";
+        //     dump_must_set(must_in);
+        // }
+        return out_may_[b] != may_in || out_must_[b] != must_in;
+    }
+
+    void commit_block_out_state(const std::size_t b, MustState& must_in, MayState& may_in)
+    {
+        std::swap(out_may_[b], may_in);
+        std::swap(out_must_[b], must_in);
+    }
+
+    void enqueue_successors_if_reachable(const std::size_t b, std::queue<std::size_t>& worklist,
+                                         std::vector<bool>& in_worklist) const
+    {
+        for (const auto& weak_succ : blocks_[b]->get_successors())
+        {
+            if (auto succ = weak_succ.lock())
+            {
+                const auto it = index_of_.find(succ);
+                ASSUMPTION(it != index_of_.end());
+
+                const auto succ_idx = it->second;
+                if (!reachable_[succ_idx])
+                {
+                    continue;
+                }
+
+                if (!in_worklist[succ_idx])
+                {
+                    worklist.push(succ_idx);
+                    in_worklist[succ_idx] = true;
+                }
+            }
         }
     }
 
@@ -320,131 +543,36 @@ struct FunctionContext
         {
             return;
         }
-        first_visit_.assign(NB_, true);
 
-        std::queue<std::size_t> wl;
-        std::vector<char>       in_wl(NB_, 0);
-        wl.push(entry_);
-        in_wl[entry_] = 1;
+        std::fill(has_out_.begin(), has_out_.end(), false);
 
-        while (!wl.empty())
+        std::queue<std::size_t> worklist;
+        std::vector<bool>       in_worklist(NB_, false);
+
+        if (reachable_[entry_])
         {
-            const std::size_t b = wl.front();
-            wl.pop();
-            in_wl[b] = 0;
+            worklist.push(entry_);
+            in_worklist[entry_] = true;
+        }
 
-            auto& may_in     = in_may_scratch_;
-            auto& must_in    = in_must_scratch_;
-            auto  first_pred = false;
-            if (b == entry_ && first_visit_[b])
+        while (!worklist.empty())
+        {
+            const auto b = worklist.front();
+            worklist.pop();
+            in_worklist[b] = false;
+
+            auto& may_in  = in_may_scratch_;
+            auto& must_in = in_must_scratch_;
+
+            build_solver_in_state(b, must_in, may_in);
+            apply_block_transfers(b, must_in, may_in);
+
+            const bool changed = !has_out_[b] || block_out_changed(b, must_in, may_in);
+            if (changed)
             {
-                may_in = global_may_seed_;
-                for (const auto param : assumed_ptr_params_)
-                {
-                    may_in.insert(std::make_pair(
-                            param, utils::MaySet{{.id = grouped_objects::OUT_OF_LOCAL_SCOPE,
-                                                  .offset_flag = false}}));
-                }
-
-                for (const auto elem : utils::points_to::grouped_objects::ABSTRACT_NODES)
-                {
-                    may_in[elem] = utils::MaySet{{.id = elem, .offset_flag = false}};
-                }
-
-                // may[grouped_objects::OUT_OF_LOCAL_SCOPE] = utils::MaySet{
-                //         {.id = grouped_objects::OUT_OF_LOCAL_SCOPE, .offset_flag = false},
-                // };
-                must_in    = global_must_seed_;
-                first_pred = true;
-            }
-
-            for (const auto p : preds_[b])
-            {
-                if (first_visit_[p])
-                {
-                    continue;
-                }
-
-                if (!first_pred)
-                {
-                    must_in    = out_must_[p];
-                    may_in     = out_may_[p];
-                    first_pred = true;
-                }
-                else
-                {
-                    utils::state_join_or_strict(may_in, out_may_[p]);
-                    utils::state_join_and(must_in, out_must_[p]);
-                }
-            }
-            // clear states only if necessary (not set)
-            if (!first_pred)
-            {
-                ASSUMPTION(b == entry_);
-                may_in.clear();
-                must_in.clear();
-            }
-
-            // apply transfer functions modifying may/must-IN to OUT inplace
-            std::size_t instruciton_id = 0;
-            for (const auto& instruction : blocks_[b]->get_instructions())
-            {
-                const auto relevant_ops_size = fill_operands_id(instruction);
-
-                // One state needs to be copied -> the modification is done in-place
-                // we choose the must state since it contains less data
-                utils::MayTransferContextBundle may_transfer_context{
-                        .pp             = {.function = _id, .bb = b, .instr = instruciton_id},
-                        .opcode         = instruction->get_opcode(),
-                        .may_in         = may_in,
-                        .must_in        = MustState{must_in},
-                        .global_objects = *global_objects_,
-                        .local_objects  = local_objects_,
-                        .operands_id    = operands_id_scratch_,
-                        .operands_count = relevant_ops_size,
-                        .last_local_id  = last_local_id_,
-                };
-
-                utils::MustTransferContextBundle must_transfer_context{
-                        .opcode         = instruction->get_opcode(),
-                        .must_in        = must_in,
-                        .may_in         = may_in,
-                        .global_objects = *global_objects_,
-                        .local_objects  = local_objects_,
-                        .operands_id    = operands_id_scratch_,
-                        .operands_count = relevant_ops_size,
-                        .last_local_id  = last_local_id_,
-                };
-
-                // WARNING: order of calls is important since we modify the states in-place
-                utils::apply_transfer_must(must_transfer_context);
-                utils::apply_transfer_may(may_transfer_context);
-                ++instruciton_id;
-            }
-
-            first_visit_[b] = false;
-            if (out_may_[b] != may_in || out_must_[b] != must_in)
-            {
-                std::swap(out_may_[b], may_in);
-                std::swap(out_must_[b], must_in);
-
-                for (const auto& weak_succ : blocks_[b]->get_successors())
-                {
-                    if (auto succ = weak_succ.lock())
-                    {
-                        auto it = index_of_.find(succ);
-                        ASSUMPTION(it != index_of_.end());
-                        bool has_ready_pred =
-                                std::any_of(preds_[it->second].begin(), preds_[it->second].end(),
-                                            [&](auto p) { return !first_visit_[p]; });
-
-                        if (has_ready_pred && !in_wl[it->second])
-                        {
-                            wl.push(it->second);
-                            in_wl[it->second] = 1;
-                        }
-                    }
-                }
+                commit_block_out_state(b, must_in, may_in);
+                has_out_[b] = true;
+                enqueue_successors_if_reachable(b, worklist, in_worklist);
             }
         }
     }
@@ -454,7 +582,7 @@ struct FunctionContext
         const auto relevant_ops_count = utils::get_relevant_operands_count(*instruction);
         if (relevant_ops_count >= operands_id_scratch_.size())
         {
-            operands_id_scratch_.resize(relevant_ops_count, grouped_objects::UNDEFINED);
+            operands_id_scratch_.resize(relevant_ops_count);
         }
         for (std::size_t i = 0; i < relevant_ops_count; ++i)
         {
@@ -500,8 +628,8 @@ struct FunctionContext
     utils::ObjectPool* global_objects_{};
     utils::ObjectPool  local_objects_;
 
-    std::unordered_set<objectId>    assumed_ptr_params_;
-    std::unordered_set<std::size_t> func_end_bbs;
+    utils::SparseSet<objectId>    assumed_ptr_params_;
+    utils::SparseSet<std::size_t> exit_basic_blocks;
 
     std::vector<MayState>  out_may_;
     std::vector<MustState> out_must_;
@@ -513,29 +641,31 @@ struct FunctionContext
     std::size_t NB_{0};
     std::size_t entry_{0};
 
-    std::vector<bool>                                           first_visit_;
-    std::vector<program::BasicBlockIR_sptr>                     blocks_;
-    std::vector<std::vector<std::size_t>>                       preds_;
-    std::unordered_map<program::BasicBlockIR_sptr, std::size_t> index_of_;
+    std::vector<bool>                                         reachable_;
+    std::vector<bool>                                         has_out_;
+    std::vector<program::BasicBlockIR_sptr>                   blocks_;
+    std::vector<std::vector<std::size_t>>                     preds_;
+    utils::SparseMap<program::BasicBlockIR_sptr, std::size_t> index_of_;
 };
-} // namespace
 
-struct LocalPointsToAnalysis::Impl
+struct Impl
 {
     Impl(program::ProgramIR_sptr sala_ir) : sala_ir_{std::move(sala_ir)}
     {
+        init_function_contexts();
         run_function_contexts();
+        materialize();
     }
 
   private:
-    void run_function_contexts()
+    void init_function_contexts()
     {
-        const auto exec_policy = std::execution::seq;
         contexts_.reserve(sala_ir_->get_functions().size());
-        auto& pm             = sala_ir_->get_metadata();
-        auto& points_to_meta = pm.get<metadata::points_to::ProgramMeta>();
-        auto  local_id_start = static_cast<objectId>(points_to_meta.global_objects.size());
+        const auto& points_to_program_meta =
+                sala_ir_->get_metadata().get<metadata::points_to::ProgramMeta>();
 
+        const auto local_id_start =
+                static_cast<objectId>(points_to_program_meta.global_objects.size());
         std::size_t func_id = 0;
         for (const auto& function : sala_ir_->get_functions())
         {
@@ -543,58 +673,86 @@ struct LocalPointsToAnalysis::Impl
             {
                 continue;
             }
-            contexts_.emplace_back(func_id++, function, local_id_start);
+            contexts_.emplace_back(
+                    std::make_unique<FunctionContext>(func_id++, function, local_id_start));
         }
-        // first clean run
-        std::for_each(exec_policy, contexts_.begin(), contexts_.end(),
-                      [](auto& ctx) { ctx.run(); });
+    };
 
-        MustState global_must_fixpoint;
-        MayState  global_may_fixpoint;
-        global_must_fixpoint.reserve(points_to_meta.must_out.size());
-        global_may_fixpoint.reserve(points_to_meta.may_out.size());
-
-        const auto fill_fixpoint_info = [&]()
+    void run_function_contexts()
+    {
+        if (contexts_.empty())
         {
-            global_must_fixpoint = points_to_meta.must_out;
-            global_may_fixpoint  = points_to_meta.may_out;
-            for (auto& ctx : contexts_)
+            return;
+        }
+
+        auto& program_metadata = sala_ir_->get_metadata().get<metadata::points_to::ProgramMeta>();
+        bool  fixpoint_reached = false;
+        do
+        {
+            std::optional<MustState> fixpoint_must;
+            std::optional<MayState>  fixpoint_may;
+            for (auto& context : contexts_)
             {
-                const auto& [context_global_must, context_global_may] =
-                        ctx.get_after_global_states();
-                utils::points_to::state_join_or_strict(global_may_fixpoint, context_global_may,
-                                                       grouped_objects::CALL_ORDER_DISCREPENCY);
-                utils::points_to::state_join_and(global_must_fixpoint, context_global_must);
+                context->run(program_metadata.must_out, program_metadata.may_out);
             }
-        };
+            for (auto& context : contexts_)
+            {
+                auto possible_out_states = context->get_after_global_states();
+                if (!possible_out_states.has_value())
+                {
+                    // function has no exit we do not propagate the information
+                    continue;
+                }
 
-        fill_fixpoint_info();
-        // resolve global points to information until a fixpoint occurs
-        while (points_to_meta.must_out != global_must_fixpoint ||
-               points_to_meta.may_out != global_may_fixpoint)
+                auto& global_must_out = possible_out_states->first;
+                auto& global_may_out  = possible_out_states->second;
+
+                if (!fixpoint_must.has_value())
+                {
+                    fixpoint_must = std::move(global_must_out);
+                    fixpoint_may  = std::move(global_may_out);
+                }
+                else
+                {
+                    utils::points_to::state_join_or_strict(fixpoint_may.value(), global_may_out,
+                                                           grouped_objects::CALL_ORDER_DISCREPANCY);
+                    utils::points_to::state_join_and(fixpoint_must.value(), global_must_out);
+                }
+            }
+
+            if (!fixpoint_may.has_value() && !fixpoint_must.has_value())
+            {
+                // e.g. One function (not static init) which has no exit
+                fixpoint_reached = true;
+            }
+            else
+            {
+                fixpoint_reached = fixpoint_must.value() == program_metadata.must_out &&
+                                   fixpoint_may.value() == program_metadata.may_out;
+                program_metadata.must_out = std::move(fixpoint_must.value());
+                program_metadata.may_out  = std::move(fixpoint_may.value());
+            }
+        } while (!fixpoint_reached);
+    };
+
+    void materialize()
+    {
+        while (!contexts_.empty())
         {
-            std::for_each(exec_policy, contexts_.begin(), contexts_.end(), [&](auto& ctx)
-                          { ctx.resolve(global_must_fixpoint, global_may_fixpoint); });
-            fill_fixpoint_info();
-            points_to_meta.must_out = global_must_fixpoint;
-            points_to_meta.may_out  = global_may_fixpoint;
+            contexts_.back()->materialize();
+            contexts_.pop_back();
         }
-
-        std::for_each(contexts_.begin(), contexts_.end(), [&](auto& ctx) { ctx.materialize(); });
     }
 
   private:
     program::ProgramIR_sptr sala_ir_;
 
-    std::vector<FunctionContext> contexts_;
+    std::vector<std::unique_ptr<FunctionContext>> contexts_;
 };
+} // namespace
 
-LocalPointsToAnalysis::~LocalPointsToAnalysis() = default;
-LocalPointsToAnalysis::LocalPointsToAnalysis()  = default;
-
-program::ProgramIR_sptr LocalPointsToAnalysis::run(program::ProgramIR_sptr sala_ir)
+void LocalPointsToAnalysis::run(program::ProgramIR_sptr sala_ir)
 {
-    pImpl_ = std::make_unique<Impl>(sala_ir);
-    return sala_ir;
+    const auto trigger = Impl(sala_ir);
 }
 } // namespace optimizer::passes

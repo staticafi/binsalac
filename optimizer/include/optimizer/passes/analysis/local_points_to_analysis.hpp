@@ -1,119 +1,187 @@
 #ifndef OPTIMIZER_LOCAL_POINTS_TO_ANALYSIS_HPP_INCLUDED
 #define OPTIMIZER_LOCAL_POINTS_TO_ANALYSIS_HPP_INCLUDED
-#include <optimizer/passes/traits.hpp>
+#include <optimizer/programIR/ir_types.hpp>
 
 namespace optimizer::passes
 {
-/*
-Points-to Analysis (Local)
-=========================
-
-Scope & Sensitivity
--------------------
-- Flow-sensitive, intraprocedural (per-function) excluding static initializer.
-- Context-insensitive: we do not propagate points-to facts across calls (see “Calls” below).
-
-Pointer Model
--------------
-Pointer is an object whose value represents the memory address of another object.
-Since we do not distinguish a pointer type in our language, pointers are identified by their
-semantic use: operands that participate in instructions operating on memory addresses are treated as
-pointers defined above.
-
-Global Seeds
-------------
-We possess may- and must-point-to information from GlobalPointsToAnalysis that is valid
-for the whole-program context. For each function, these facts are provided as entry
-state (may_in / must_in) and form the basis of this local analysis.
-
-Tracked vs. Untracked Pointers
-------------------------------
-Let t be an instruction operand descriptor such t ∈ { local, parameter, static, constant}
-Note that modifiyng constants outside of static initializer is undefined behavior.
-
-Then tracked pointer variables are defined as follows:
-    1. variable tN defined via ADRESS tN tM
-    2. variable tN defined via COPY tN tM; where tM is a tracked pointer variable
-    3. variable tN defined via LOAD tN tM; where tM holds the address of a tracked pointer variable
-    4. variable at address stored in tN defined via STORE tN tM; where tM and tN are tracked pointer
-        variables
-    5. variable tN defined via P2I tN tM; where tM is a tracked pointer variable
-    6. variable tN defined via I2P tN tM; where tM was defined by 5. and not modified.
-
-
-Any other pointer is untracked.
-
-Untracked Memory Nodes
-----------------------
-For untracked pointers we conservatively abstract memory with the following nodes
-    - Undefined     : unknown / top location (may point to anything)
-    - Function      : function addresses
-    - Heap          : memory from MALLOC
-    - Stack         : memory from ALLOCA
-    - StackPointer  : memory from STACKSAVE
-
-
-Access Policy & Conservatism
-----------------------------
-- If a pointer is not present in the (may ⊇ must) points-to set at a use site,
-  the access is treated as going through the **Undefined** untracked node.
-
-- Any access through **Undefined** kills (invalidates) all must-points-to information
-  at that program point.
-
-- “Kill must” means: remove the affected locations from the must-set (the may-set
-  remains a conservative over-approximation).
-
-Updates (Strong vs. Weak)
--------------------------
-- A strong update applies when the write is to a single cell
-  (the base pointer is a must-singleton and the location is not a summary).
-  Strong update overwrites both may and must of the target cell.
-
-- Otherwise perform a weak update: union into may; drop/clear must for that cell
-  unless you can prove the written value is the only possible content.
-
-Function Calls (Escapes)
-------------------------
-- Passing a tracked pointer as an argument is treated as an escape.
-  We conservatively kill must for all locations reachable from that pointer
-  (transitively) at the call site. May is preserved/expanded as needed.
-
-- No interprocedural propagation: callees do not refine caller facts. Unknown calls
-  may additionally invalidate must for any location they may modify.
-
-Joins
------
-- At CFG merges: May = union of predecessors; Must = intersection of predecessors.
-
-Soundness Invariants
---------------------
-- If a concrete execution can make x point to l at a program point, then l ∈ May(x).
-- If l ∈ Must(x) at a point, then in all executions reaching that point, x points to l.
-*/
-
+/**
+ * Local intraprocedural points-to analysis over the CFG of each non-initializer function.
+ *
+ * High-level goal
+ * ----------------
+ * The analysis computes, for every basic block entry, an approximation of pointer values and
+ * pointer-stored memory contents inside the current function. It also computes a function-exit
+ * summary for global objects, which is then iterated to a program-level fixpoint across functions.
+ *
+ * The analysis is flow-sensitive and intraprocedural:
+ * - flow-sensitive: transfer is applied in CFG order and join is performed at merge points
+ * - intraprocedural: each function is solved locally; calls are handled conservatively through
+ *   summary effects rather than by inlining callees
+ *
+ * Two coupled abstractions
+ * ------------------------
+ * The analysis maintains two dataflow states:
+ *
+ *   1) MayState
+ *      Maps an object id x to a may-value M(x).
+ *      M(x) describes the set of abstract targets that x may point to.
+ *
+ *   2) MustState
+ *      Maps an object id x to a single target T(x).
+ *      T(x) exists only when x is known to point to exactly one abstract target.
+ *
+ * The two states are computed together because:
+ * - may information is needed to validate memory accesses and weak updates
+ * - must information is used when an operation has an exact singleton interpretation
+ *
+ * Abstract objects
+ * ----------------
+ * Concrete variables and constants are assigned object ids. In addition, the analysis uses
+ * grouped abstract objects for memory regions that are intentionally summarized, such as:
+ *
+ * - HEAP
+ * - ALLOCA
+ * - OUT_OF_LOCAL_SCOPE
+ * - OUT_OF_GLOBAL_SCOPE
+ * - MERGE_UNKNOWN
+ * - VARGARG_BLOCK
+ * - CALL_ORDER_DISCREPENCY
+ * - FUNCTION
+ *
+ * These grouped objects represent regions or effects that are relevant for optimization, but are
+ * not distinguished object-by-object in the abstract domain.
+ *
+ * Mathematical view of the may domain
+ * -----------------------------------
+ * For each tracked object x, the may domain stores a value of the form:
+ *
+ *   M(x) in { TOP } union P_finite(Target)
+ *
+ * where:
+ * - TOP means "x may point to anything representable by the analysis"
+ * - P_finite(Target) is a finite set of abstract targets
+ *
+ * Bottom is represented implicitly:
+ * - if x is absent from MayState, then there is no tracked may points-to fact for x
+ *
+ * Thus a present may entry is always either:
+ * - TOP, or
+ * - a non-empty finite target set
+ *
+ * The partial order is the usual may-information order:
+ *
+ *   A <= B    iff    targets(A) subseteq targets(B)
+ *
+ * with finite sets below TOP. Join is union-like, with TOP absorbing:
+ *
+ *   finite U finite  = union
+ *   TOP U anything   = TOP
+ *
+ * At CFG joins, the analysis uses a strict may join that also inserts MERGE_UNKNOWN when one
+ * predecessor provides points-to information for an object and another predecessor does not.
+ * This distinguishes "known finite alternatives" from "finite alternatives plus missing branch
+ * information".
+ *
+ * Mathematical view of the must domain
+ * ------------------------------------
+ * For each tracked object x, the must domain stores either:
+ *
+ *   no entry
+ *   or
+ *   one exact target T(x)
+ *
+ * Bottom / lack of exactness is represented implicitly by absence from MustState.
+ * There is no explicit must-TOP element. Whenever exact singleton information is lost, the entry
+ * is erased.
+ *
+ * The meet used at CFG joins is intersection-like:
+ * - a must fact is preserved only if all predecessors agree on the same exact target
+ * - otherwise the fact is dropped
+ *
+ * Concretely, for a given object x:
+ * - if all incoming must states contain the same target t, keep x -> t
+ * - otherwise erase x from the joined must state
+ *
+ * Transfer model
+ * --------------
+ * Each instruction is interpreted as a transfer function over the pair:
+ *
+ *   (MustState, MayState)
+ *
+ * The transfer functions are designed so that:
+ * - exact singleton cases update MustState
+ * - weak or ambiguous cases fall back to MayState
+ * - invalid or maximally imprecise memory accesses may nuke the current may/must information
+ *   conservatively
+ *
+ * Examples:
+ * - ADDRESS, COPY, ALLOCA, MALLOC perform strong updates on the destination
+ * - LOAD uses exact singleton dereference when possible, otherwise joins may-information from all
+ *   possible pointees
+ * - STORE performs weak updates through all possible pointees of the destination
+ * - MEMCPY/MEMMOVE/MEMSET conservatively invalidate or merge stored pointer information in memory
+ * - CALL conservatively propagates escape effects through reachable arguments
+ *
+ * Meaning of "nuke"
+ * -----------------
+ * Some operations, such as dereferencing an untracked or TOP pointer under the current model,
+ * are treated as invalid or too imprecise for the local abstraction. In such cases, the transfer
+ * may conservatively replace tracked information by TOP-like summary effects. This intentionally
+ * sacrifices precision to preserve sound over-approximation for optimization clients.
+ *
+ * CFG solution
+ * ------------
+ * For each function, the analysis solves a forward dataflow problem over the basic-block CFG.
+ *
+ * Let OUT[b] be the pair of abstract states after block b.
+ * Let IN[b] be the pair of states before block b.
+ *
+ * Entry initialization:
+ * - IN[entry] starts from the current global seed states
+ * - assumed pointer parameters are initialized to OUT_OF_LOCAL_SCOPE
+ * - grouped abstract nodes are seeded in the may state as self-pointing singleton facts
+ *
+ * Transfer:
+ * - IN[b] is propagated instruction-by-instruction through block b
+ * - the resulting state becomes OUT[b]
+ *
+ * Join at merge points:
+ * - may component uses strict may-join
+ * - must component uses agreement/intersection meet
+ *
+ * The block equations are solved by a standard worklist iteration until block OUT states stabilize.
+ *
+ * Interprocedural summary iteration
+ * ---------------------------------
+ * Although the analysis is intraprocedural, functions communicate through global object summaries.
+ *
+ * After each function is solved:
+ * - the exit-block OUT states are projected to global objects
+ * - local targets are remapped or discarded when exporting summaries
+ * - the resulting global may/must summaries are joined across all functions
+ *
+ * This process is iterated until the program-level global summaries reach a fixpoint.
+ *
+ * Export policy
+ * -------------
+ * When exporting function-exit information to the global summary:
+ * - may facts targeting non-global objects are remapped to OUT_OF_GLOBAL_SCOPE
+ * - must facts are preserved only when the exact target is globally meaningful
+ *   (for example a global object or HEAP); otherwise exactness is dropped
+ *
+ * Precision profile
+ * -----------------
+ * The analysis is:
+ * - flow-sensitive
+ * - field-insensitive / offset-summary-based
+ * - intraprocedural with iterative global summary propagation
+ * - conservative around calls, memory intrinsics, variadic state, and invalid accesses
+ *
+ */
 class LocalPointsToAnalysis
 {
   public:
-    LocalPointsToAnalysis();
-    ~LocalPointsToAnalysis();
-    program::ProgramIR_sptr run(program::ProgramIR_sptr sala_ir);
-
-  private:
-    struct Impl;
-    std::unique_ptr<Impl> pImpl_;
-};
-
-template <>
-struct PassTraits<LocalPointsToAnalysis>
-{
-    using kind      = passes::AnalysisPass;
-    using needs     = utils::TypeList<KeyTag<metadata::MetaKey::POINTS_TO>>;
-    using provides  = utils::TypeList<KeyTag<metadata::MetaKey::POINTS_TO>>;
-    using preserves = utils::TypeList<KeyTag<metadata::MetaKey::TRANSLATION_SALA_TO_IR>>;
-
-    static constexpr Repr        required_repr = Repr::IR;
-    static constexpr const char* name          = "PointsToAnalysis";
+    void run(program::ProgramIR_sptr sala_ir);
 };
 
 } // namespace optimizer::passes

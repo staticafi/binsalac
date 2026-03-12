@@ -1,6 +1,7 @@
 #include <optimizer/passes/transformation/merge_constants.hpp>
 
 #include <optimizer/programIR/basic_block_ir.hpp>
+#include <optimizer/programIR/constant_ir.hpp>
 #include <optimizer/programIR/function_ir.hpp>
 #include <optimizer/programIR/instruction_ir.hpp>
 
@@ -207,6 +208,9 @@ class MergeConstants::Impl
                                                 canonical_constant_map_;
     std::unordered_set<program::ConstantIR_raw> duplicates_;
 };
+
+MergeConstants::MergeConstants()  = default;
+MergeConstants::~MergeConstants() = default;
 
 program::ProgramIR_sptr MergeConstants::run(program::ProgramIR_sptr sala_ir)
 {

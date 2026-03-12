@@ -128,10 +128,15 @@ void SalaToIR::translate_part(const sala::Function&           source,
         ASSUMPTION(basic_block != nullptr);
         basic_block->assign_to_function(destination);
 
-        const auto [_, succes] = b_block_map_.try_emplace(source_b_block.index(), basic_block);
-        ASSUMPTION(succes);
-        b_block_succesors_map_.emplace(source_b_block.index(), source_b_block.successors());
-
+        {
+            const auto [_, succes] = b_block_map_.try_emplace(source_b_block.index(), basic_block);
+            ASSUMPTION(succes);
+        }
+        {
+            const auto [_, success] = b_block_succesors_map_.try_emplace(
+                    source_b_block.index(), source_b_block.successors());
+            ASSUMPTION(success);
+        }
         if (entry_basic_block_id == source_b_block.index())
         {
             destination->get_entry_basic_block() = basic_block;
