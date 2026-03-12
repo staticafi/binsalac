@@ -1,47 +1,58 @@
 #ifndef OPTIMIZER_UTILS_REPR_OF_HPP_INCLUDED
 #define OPTIMIZER_UTILS_REPR_OF_HPP_INCLUDED
-#include <optimizer/passes/traits.hpp>
+
+#include <optimizer/pipeline/pass_contracts.hpp>
+#include <optimizer/programIR/program_ir.hpp>
+#include <optimizer/programIR/program_repr.hpp>
+
+#include <memory>
 #include <variant>
 
 namespace optimizer::utils
 {
 
-template <class T>
+template <typename T>
 struct repr_of;
 
 template <>
 struct repr_of<std::shared_ptr<sala::Program>>
 {
-    static constexpr passes::Repr value = passes::Repr::Sala;
-};
-template <>
-struct repr_of<program::ProgramIR_sptr>
-{
-    static constexpr passes::Repr value = passes::Repr::IR;
+    static constexpr pipeline::Repr value = pipeline::Repr::Sala;
 };
 
-// Map repr tag -> variant alternative type
-template <passes::Repr R>
-struct repr_alt;
 template <>
-struct repr_alt<passes::Repr::Sala>
+struct repr_of<program::ProgramIR>
+{
+    static constexpr pipeline::Repr value = pipeline::Repr::IR;
+};
+
+template <pipeline::Repr R>
+struct repr_alt;
+
+template <>
+struct repr_alt<pipeline::Repr::Sala>
 {
     using type = std::shared_ptr<sala::Program>;
 };
+
 template <>
-struct repr_alt<passes::Repr::IR>
+struct repr_alt<pipeline::Repr::IR>
 {
     using type = program::ProgramIR_sptr;
 };
-template <passes::Repr R>
+
+template <pipeline::Repr R>
 using repr_alt_t = typename repr_alt<R>::type;
 
-// Get current repr tag from a ProgramRepr
-inline passes::Repr current_repr(const program::ProgramRepr& pr)
+inline pipeline::Repr current_repr(const program::ProgramRepr& pr)
 {
-    return std::visit([](auto const& alt) { return repr_of<std::decay_t<decltype(alt)>>::value; },
-                      pr);
+    if (std::holds_alternative<std::shared_ptr<sala::Program>>(pr))
+    {
+        return pipeline::Repr::Sala;
+    }
+    return pipeline::Repr::IR;
 }
 
+} // namespace optimizer::utils
+
 #endif
-} // namespace optimizer::pipeline

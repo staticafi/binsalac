@@ -94,6 +94,36 @@ struct set_intersection<TypeList<As...>, TypeList<Bs...>>
 template <typename A, typename B>
 using set_intersection_t = typename set_intersection<A, B>::type;
 
+// set_difference<A, B> = elements in A that are not in B
+template <typename A, typename B>
+struct set_difference;
+
+template <typename... As, typename... Bs>
+struct set_difference<TypeList<As...>, TypeList<Bs...>>
+{
+    template <typename Accum, typename... Xs>
+    struct fold;
+
+    template <typename Accum>
+    struct fold<Accum>
+    {
+        using type = Accum;
+    };
+
+    template <typename Accum, typename X, typename... Rest>
+    struct fold<Accum, X, Rest...>
+    {
+        using next = std::conditional_t<contains_v<X, TypeList<Bs...>>, Accum,
+                                        typename set_union_unique<Accum, TypeList<X>>::type>;
+        using type = typename fold<next, Rest...>::type;
+    };
+
+    using type = typename fold<TypeList<>, As...>::type;
+};
+
+template <typename A, typename B>
+using set_difference_t = typename set_difference<A, B>::type;
+
 // is_subset<Need, Have>
 template <typename Need, typename Have>
 struct is_subset;

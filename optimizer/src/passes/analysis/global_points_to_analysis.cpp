@@ -1,4 +1,3 @@
-#include <iostream>
 #include <optimizer/passes/analysis/global_points_to_analysis.hpp>
 
 #include <optimizer/metadata/points_to.hpp>
@@ -7,7 +6,7 @@
 #include <optimizer/programIR/instruction_ir.hpp>
 #include <optimizer/programIR/program_ir.hpp>
 #include <optimizer/programIR/variable_ir.hpp>
-#include <optimizer/utils/points_to_import.hpp>
+#include <optimizer/utils/points_to/import.hpp>
 
 #include <utility/assumptions.hpp>
 
@@ -334,7 +333,7 @@ struct GlobalPointsToAnalysis::Impl
         const auto relevant_ops_count = utils::get_relevant_operands_count(*instruction);
         if (relevant_ops_count >= operands_id_scratch_.size())
         {
-            operands_id_scratch_.resize(relevant_ops_count, utils::grouped_objects::UNDEFINED);
+            operands_id_scratch_.resize(relevant_ops_count);
         }
         for (std::size_t i = 0; i < relevant_ops_count; ++i)
         {

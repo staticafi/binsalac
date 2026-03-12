@@ -1,5 +1,5 @@
-#ifndef OPTIMIZER_UTILS_SPARSE_STATE_MAP_INCLUDED
-#define OPTIMIZER_UTILS_SPARSE_STATE_MAP_INCLUDED
+#ifndef OPTIMIZER_UTILS_SPARSE_MAP_INCLUDED
+#define OPTIMIZER_UTILS_SPARSE_MAP_INCLUDED
 
 #include <algorithm>
 #include <vector>
@@ -7,7 +7,7 @@ namespace optimizer::utils
 {
 
 template <typename KeyT, typename ValueT>
-class SparseStateMap
+class SparseMap
 {
   public:
     using key_type       = KeyT;
@@ -18,7 +18,7 @@ class SparseStateMap
     using const_iterator = storage_type::const_iterator;
     using size_type      = storage_type::size_type;
 
-    SparseStateMap() = default;
+    SparseMap() = default;
 
     iterator       begin() noexcept { return data_.begin(); }
     iterator       end() noexcept { return data_.end(); }
@@ -118,7 +118,7 @@ class SparseStateMap
 
     iterator erase(iterator it) { return data_.erase(it); }
 
-    friend bool operator==(const SparseStateMap& lhs, const SparseStateMap& rhs) = default;
+    friend bool operator==(const SparseMap& lhs, const SparseMap& rhs) = default;
 
   private:
     storage_type data_{};

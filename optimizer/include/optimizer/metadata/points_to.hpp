@@ -16,7 +16,6 @@
 namespace optimizer::metadata::points_to
 {
 namespace utils = utils::points_to;
-using utils::MaySet;
 using utils::MayState;
 using utils::MustState;
 using utils::objectId;
@@ -30,7 +29,7 @@ using PointsToMetaEntry = ConcreteMetaEntry<BaseEntryI, MetaKey::POINTS_TO>;
 struct ConstantMeta final : PointsToMetaEntry<ConstantMetaEntryI>
 {
     // assigned object id
-    objectId id = utils::grouped_objects::UNDEFINED;
+    objectId id{};
 };
 
 struct InstructionMeta final : PointsToMetaEntry<InstructionMetaEntryI>
@@ -44,7 +43,7 @@ struct InstructionMeta final : PointsToMetaEntry<InstructionMetaEntryI>
 
 struct VariableMeta final : PointsToMetaEntry<VariableMetaEntryI>
 {
-    objectId id = utils::grouped_objects::UNDEFINED;
+    objectId id{};
 };
 
 struct BasicBlockMeta final : PointsToMetaEntry<BasicBlockMetaEntryI>
