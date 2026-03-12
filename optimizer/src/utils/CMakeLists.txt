@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 project(optimizer_lib)
 
 set(INCLUDE_DIR
-  ${CMAKE_CURRENT_SOURCE_DIR}/../../include/optimizer/passes
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../include/optimizer/utils
 )
 
 set(HEADER_FILES
@@ -11,9 +11,7 @@ set(HEADER_FILES
 set(SOURCE_FILES
 )
 
-add_subdirectory(analysis)
-add_subdirectory(transformation)
-add_subdirectory(debug)
+add_subdirectory(points_to)
 
 target_sources(optimizer PRIVATE ${SOURCE_FILES} ${HEADER_FILES})
 

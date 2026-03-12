@@ -169,6 +169,9 @@ class RemoveIndirections::Impl
     std::vector<FunctionContext> contexts_;
 };
 
+RemoveIndirections::~RemoveIndirections() = default;
+RemoveIndirections::RemoveIndirections()  = default;
+
 program::ProgramIR_sptr RemoveIndirections::run(program::ProgramIR_sptr sala_ir)
 {
     ASSUMPTION(sala_ir->get_metadata().has<metadata::points_to::ProgramMeta>());

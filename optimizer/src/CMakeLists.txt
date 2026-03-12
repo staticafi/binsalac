@@ -21,10 +21,11 @@ add_library(${THIS_TARGET_NAME} STATIC ${SOURCE_FILES} ${HEADER_FILES})
 
 target_include_directories(${THIS_TARGET_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 
+add_subdirectory(analysis)
+add_subdirectory(passes)
 add_subdirectory(programIR)
 add_subdirectory(translation)
-add_subdirectory(passes)
-add_subdirectory(analysis)
+add_subdirectory(utils)
 
 target_link_libraries(${THIS_TARGET_NAME}
     sala

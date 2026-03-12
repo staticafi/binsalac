@@ -1,6 +1,7 @@
 #ifndef OPTIMIZER_GLOBAL_POINTS_TO_ANALYSIS_HPP_INCLUDED
 #define OPTIMIZER_GLOBAL_POINTS_TO_ANALYSIS_HPP_INCLUDED
-#include <optimizer/passes/traits.hpp>
+#include <memory>
+#include <optimizer/programIR/ir_types.hpp>
 
 namespace optimizer::passes
 {
@@ -105,18 +106,6 @@ class GlobalPointsToAnalysis
   private:
     struct Impl;
     std::unique_ptr<Impl> pImpl_;
-};
-
-template <>
-struct PassTraits<GlobalPointsToAnalysis>
-{
-    using kind      = passes::AnalysisPass;
-    using needs     = utils::TypeList<>;
-    using provides  = utils::TypeList<KeyTag<metadata::MetaKey::POINTS_TO>>;
-    using preserves = utils::TypeList<KeyTag<metadata::MetaKey::TRANSLATION_SALA_TO_IR>>;
-
-    static constexpr Repr        required_repr = Repr::IR;
-    static constexpr const char* name          = "GlobalPointsToAnalysis";
 };
 
 } // namespace optimizer::passes

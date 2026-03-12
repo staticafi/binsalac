@@ -1,5 +1,5 @@
 #include <iostream>
-#include <optimizer/passes/debug/serialize_points_to.hpp>
+#include <optimizer/passes/debug/dump_points_to.hpp>
 
 #include <optimizer/metadata/points_to.hpp>
 #include <optimizer/metadata/translation.hpp>
@@ -9,7 +9,7 @@
 #include <optimizer/programIR/instruction_ir.hpp>
 #include <optimizer/programIR/program_ir.hpp>
 #include <optimizer/programIR/variable_ir.hpp>
-#include <optimizer/utils/points_to_import.hpp>
+#include <optimizer/utils/points_to/import.hpp>
 
 #include <sala/streaming.hpp>
 #include <sstream>
@@ -17,6 +17,8 @@
 #include <utility/development.hpp>
 
 namespace optimizer::passes
+{
+namespace
 {
 static constexpr std::string_view ERROR = "ERROR";
 
@@ -189,8 +191,9 @@ std::string_view get_function_name(const program::FunctionIR& function)
 
     return translation_meta.name;
 }
+} // namespace
 
-struct SerializePointsTo::Impl
+struct DumpPointsTo::Impl
 {
     program::ProgramIR_sptr run(program::ProgramIR_sptr sala_ir)
     {
@@ -305,12 +308,8 @@ struct SerializePointsTo::Impl
             builder_ << get_offset(offset) << " >>MAY IN: ";
             for (const auto& kvp : points_to_meta.may_in)
             {
-                builder_ << kvp.first << " = { ";
-                for (auto elem : kvp.second)
-                {
-                    builder_ << elem << " ";
-                }
-                builder_ << "}; ";
+                builder_ << kvp.first << " = " << kvp.second;
+                builder_ << "; ";
             }
             builder_ << "<<\n";
 
@@ -350,27 +349,6 @@ struct SerializePointsTo::Impl
         {
             const auto& metadata = instruction->get_metadata();
             ASSUMPTION(metadata.has<metadata::translation::InstructionMeta>());
-            // const auto& points_to_meta = metadata.get<metadata::points_to::InstructionMeta>();
-            //
-            // builder_ << get_offset(offset) << " >>MAY IN: ";
-            // for (const auto& kvp : points_to_meta.may_in)
-            // {
-            //     builder_ << kvp.first << " = { ";
-            //     for (auto elem : kvp.second)
-            //     {
-            //         builder_ << elem << " ";
-            //     }
-            //     builder_ << "}; ";
-            // }
-            // builder_ << "<<\n";
-            //
-            // builder_ << get_offset(offset) << " >>MUST IN: ";
-            // for (const auto& kvp : points_to_meta.must_in)
-            // {
-            //     builder_ << kvp.first << " -> " << kvp.second << "; ";
-            // }
-            // builder_ << "<<\n";
-
             builder_ << get_offset(offset)
                      << instruction_opcode_to_string(instruction->get_opcode());
             constexpr int operand_sep = 1;
@@ -435,14 +413,14 @@ struct SerializePointsTo::Impl
     std::unordered_map<program::BasicBlockIR_sptr, int> bb_id_map_;
 };
 
-SerializePointsTo::SerializePointsTo()
+DumpPointsTo::DumpPointsTo()
 {
-    pImpl_ = std::make_unique<SerializePointsTo::Impl>();
+    pImpl_ = std::make_unique<DumpPointsTo::Impl>();
 }
 
-SerializePointsTo::~SerializePointsTo() = default;
+DumpPointsTo::~DumpPointsTo() = default;
 
-program::ProgramIR_sptr SerializePointsTo::run(program::ProgramIR_sptr sala_ir)
+program::ProgramIR_sptr DumpPointsTo::run(program::ProgramIR_sptr sala_ir)
 {
     INVARIANT(pImpl_ != nullptr);
     return pImpl_->run(std::move(sala_ir));
