@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <ostream>
 
+#include <utility/hash_combine.hpp>
+
 namespace optimizer::utils::points_to
 {
 using objectId   = std::int32_t;
@@ -117,4 +119,18 @@ struct TargetHash
     }
 };
 } // namespace optimizer::utils::points_to
+
+namespace std
+{
+template <>
+struct hash<optimizer::utils::points_to::Target>
+{
+    std::size_t operator()(const optimizer::utils::points_to::Target& target) const noexcept
+    {
+        std::size_t seed = std::hash<optimizer::utils::points_to::objectId>{}(target.id);
+        hash_combine(seed, std::hash<bool>{}(target.offset_flag));
+        return seed;
+    }
+};
+} // namespace std
 #endif

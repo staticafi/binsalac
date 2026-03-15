@@ -7,8 +7,13 @@
 namespace optimizer::pipeline
 {
 
+// using TestingPipeline =
+//         TypedPipeline<Repr::Sala, LowerSalaToIRPass, GlobalPointsToPass, LocalPointsToPass,
+//                       DumpPointsToPass, RemoveIndirectionsPass, BumpIrToSalaPass>;
+
 using TestingPipeline = TypedPipeline<Repr::Sala, LowerSalaToIRPass, GlobalPointsToPass,
-                                      LocalPointsToPass, DumpPointsToPass, BumpIrToSalaPass>;
+                                      LocalPointsToPass, DumpPointsToPass, RemoveIndirectionsPass,
+                                      AvailableCopyPass, DumpAvailCopyPass, BumpIrToSalaPass>;
 
 } // namespace optimizer::pipeline
 
