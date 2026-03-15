@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <initializer_list>
+#include <iostream>
 #include <utility>
 #include <vector>
 
@@ -134,13 +135,36 @@ class SparseSet
 
     void union_with(const SparseSet& other)
     {
-        if (other.empty())
+        if (this == &other || other.empty())
         {
             return;
         }
         if (empty())
         {
             data_ = other.data_;
+            return;
+        }
+        if (data_ == other.data_)
+        {
+            return;
+        }
+
+        // all current elements are strictly before other
+        if (cmp_(data_.back(), other.data_.front()))
+        {
+            data_.reserve(data_.size() + other.data_.size());
+            data_.insert(data_.end(), other.data_.begin(), other.data_.end());
+            return;
+        }
+
+        // all other elements are strictly before current
+        if (cmp_(other.data_.back(), data_.front()))
+        {
+            storage_type merged;
+            merged.reserve(data_.size() + other.data_.size());
+            merged.insert(merged.end(), other.data_.begin(), other.data_.end());
+            merged.insert(merged.end(), data_.begin(), data_.end());
+            data_.swap(merged);
             return;
         }
 

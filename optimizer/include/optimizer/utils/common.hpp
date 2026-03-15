@@ -1,29 +1,21 @@
+
 #ifndef OPTIMIZER_UTILS_COMMON_HPP_INCLUDED
 #define OPTIMIZER_UTILS_COMMON_HPP_INCLUDED
 
-#include <cstddef>
-
+#include <optimizer/programIR/ir_types.hpp>
+#include <sala/program.hpp>
+#include <string>
 namespace optimizer::utils
 {
-// pack size
-template <class... Ts>
-inline constexpr std::size_t pack_size_v = sizeof...(Ts);
+std::string instruction_opcode_to_string(sala::Instruction::Opcode const opcode);
 
-// nth type from a parameter pack
-template <std::size_t I, class... Ts>
-struct nth_type;
-template <class T0, class... Ts>
-struct nth_type<0, T0, Ts...>
-{
-    using type = T0;
-};
-template <std::size_t I, class T0, class... Ts>
-struct nth_type<I, T0, Ts...>
-{
-    using type = typename nth_type<I - 1, Ts...>::type;
-};
-template <std::size_t I, class... Ts>
-using nth_type_t = typename nth_type<I, Ts...>::type;
+std::string get_offset(int offset);
+
+std::string_view get_function_name(const program::FunctionIR& function);
+
+std::string sanitize_filename(std::string name);
+
+std::string get_program_name(const optimizer::program::ProgramIR& program);
 
 } // namespace optimizer::utils
 

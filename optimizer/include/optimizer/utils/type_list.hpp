@@ -60,6 +60,29 @@ struct set_union_unique<TypeList<As...>, TypeList<Bs...>>
 };
 template <typename A, typename B>
 using set_union_unique_t = typename set_union_unique<A, B>::type;
+template <typename... Lists>
+struct set_union_many;
+
+template <>
+struct set_union_many<>
+{
+    using type = TypeList<>;
+};
+
+template <typename L>
+struct set_union_many<L>
+{
+    using type = L;
+};
+
+template <typename L1, typename L2, typename... Rest>
+struct set_union_many<L1, L2, Rest...>
+{
+    using type = typename set_union_many<set_union_unique_t<L1, L2>, Rest...>::type;
+};
+
+template <typename... Lists>
+using set_union_many_t = typename set_union_many<Lists...>::type;
 
 template <typename BsList, typename Accum, typename... Xs>
 struct set_intersection_filter;

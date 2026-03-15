@@ -15,9 +15,9 @@ using MayTargetSet = optimizer::utils::SparseSet<Target>;
 
 enum class MayLossFlag : std::uint8_t
 {
-    None                 = 0,
-    MergeUnknown         = 1 << 0,
-    CallOrderDiscrepancy = 1 << 1,
+    None                 = 0U,
+    MergeUnknown         = 1U << 0U,
+    CallOrderDiscrepancy = 1U << 1U,
 };
 
 struct MayValue
@@ -76,7 +76,30 @@ struct MayValue
 {
     return MayValue::singleton(Target{.id = id, .offset_flag = offset_flag});
 }
-
 } // namespace optimizer::utils::points_to
+
+namespace std
+{
+template <>
+struct hash<optimizer::utils::points_to::MayValue>
+{
+    std::size_t operator()(const optimizer::utils::points_to::MayValue& value) const noexcept
+    {
+        constexpr auto top_hash = 0x9d4e12c1ULL;
+        std::size_t    seed     = std::hash<std::uint8_t>{}(value.loss_flags);
+        if (value.is_top)
+        {
+            hash_combine(seed, top_hash);
+            return seed;
+        }
+
+        for (const auto& target : value)
+        {
+            hash_combine(seed, std::hash<optimizer::utils::points_to::Target>{}(target));
+        }
+        return seed;
+    }
+};
+} // namespace std
 
 #endif

@@ -6,12 +6,15 @@ set(INCLUDE_DIR
 )
 
 set(HEADER_FILES
+  ${INCLUDE_DIR}/common.hpp
 )
 
 set(SOURCE_FILES
+  ${CMAKE_CURRENT_SOURCE_DIR}/common.cpp
 )
 
 add_subdirectory(points_to)
+add_subdirectory(available_copy)
 
 target_sources(optimizer PRIVATE ${SOURCE_FILES} ${HEADER_FILES})
 

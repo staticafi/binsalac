@@ -4,7 +4,7 @@
 #include <optimizer/pipeline/invokers.hpp>
 #include <optimizer/pipeline/pipeline_i.hpp>
 #include <optimizer/pipeline/spec.hpp>
-#include <optimizer/utils/common.hpp>
+#include <optimizer/utils/nth_type.hpp>
 #include <utility/assumptions.hpp>
 
 namespace optimizer::pipeline

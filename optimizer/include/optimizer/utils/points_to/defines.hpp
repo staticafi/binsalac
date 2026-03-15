@@ -1,7 +1,6 @@
 #ifndef OPTIMIZER_UTILS_POINTS_TO_DEFINES_HPP_INCLUDED
 #define OPTIMIZER_UTILS_POINTS_TO_DEFINES_HPP_INCLUDED
 
-#include <iostream>
 #include <limits>
 #include <optimizer/programIR/instruction_ir.hpp>
 
@@ -11,9 +10,7 @@
 #include <optimizer/utils/sparse_map.hpp>
 #include <optimizer/utils/sparse_set.hpp>
 
-#include <queue>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility/invariants.hpp>
 
 namespace optimizer::utils::points_to
@@ -23,8 +20,6 @@ using ObjectPool = std::unordered_map<objectId, Object>;
 
 // May state
 using MayState = SparseMap<objectId, MayValue>;
-// Must state
-using MustState = SparseMap<objectId, Target>;
 
 struct ProgramPoint
 {
@@ -38,19 +33,6 @@ struct MayTransferContextBundle
     ProgramPoint                 pp;
     sala::Instruction::Opcode    opcode;
     MayState&                    may_in;
-    const MustState&             must_in;
-    const ObjectPool&            global_objects;
-    const ObjectPool&            local_objects;
-    const std::vector<objectId>& operands_id;
-    const std::size_t            operands_count;
-    const objectId               last_local_id;
-};
-
-struct MustTransferContextBundle
-{
-    sala::Instruction::Opcode    opcode;
-    MustState&                   must_in;
-    const MayState&              may_in;
     const ObjectPool&            global_objects;
     const ObjectPool&            local_objects;
     const std::vector<objectId>& operands_id;
@@ -61,11 +43,6 @@ struct MustTransferContextBundle
 constexpr static inline bool is_abstract(objectId node)
 {
     return node < 0;
-}
-
-static inline void nuke_must(MustState& must_state)
-{
-    must_state.clear();
 }
 
 static inline void nuke_may(const MayTransferContextBundle& context)
@@ -99,18 +76,9 @@ void state_join_or_relaxed(MayState& A, const MayState& B);
 void state_join_or_strict(MayState& A, const MayState& B,
                           objectId extension_node = grouped_objects::MERGE_UNKNOWN);
 
-void state_join_and(MustState& A, const MustState& B);
-
-// Kill exact must information transitively through dereferenceable may edges.
-void transitive_kill(MustState& must_in, const objectId id, const MayState& may);
-
 void dump_may_set(const MayState& may_in);
 
-void dump_must_set(const MustState& must_in);
-
-// Kill must information reachable through dereferenceable may edges.
-// Non-state-cell targets are ignored.
-void nuke_reachable_must(objectId source, const MustTransferContextBundle& context);
+void dump_must_set(const MayState& must_in);
 
 // Make may information top for all reachable dereferenceable state cells.
 //
