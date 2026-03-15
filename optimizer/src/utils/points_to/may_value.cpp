@@ -76,6 +76,16 @@ std::optional<Target> MayValue::singleton_dereferenceable_target() const noexcep
     return *targets.begin();
 }
 
+std::optional<Target> MayValue::must_fact() const noexcept
+{
+    if (!is_must_fact())
+    {
+        return std::nullopt;
+    }
+
+    return *targets.begin();
+}
+
 void MayValue::clear_to_bottom() noexcept
 {
     is_top     = false;

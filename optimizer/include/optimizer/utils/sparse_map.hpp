@@ -2,6 +2,7 @@
 #define OPTIMIZER_UTILS_SPARSE_MAP_INCLUDED
 
 #include <algorithm>
+#include <stdexcept>
 #include <vector>
 namespace optimizer::utils
 {
@@ -55,6 +56,26 @@ class SparseMap
     [[nodiscard]] bool contains(const key_type key) const noexcept
     {
         return find(key) != data_.end();
+    }
+
+    mapped_type& at(const key_type key)
+    {
+        auto it = find(key);
+        if (it == data_.end())
+        {
+            throw std::out_of_range("SparseMap::at: key not found");
+        }
+        return it->second;
+    }
+
+    const mapped_type& at(const key_type key) const
+    {
+        auto it = find(key);
+        if (it == data_.end())
+        {
+            throw std::out_of_range("SparseMap::at: key not found");
+        }
+        return it->second;
     }
 
     mapped_type& operator[](const key_type key)

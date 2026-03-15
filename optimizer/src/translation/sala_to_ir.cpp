@@ -154,7 +154,7 @@ program::BasicBlockIR_sptr SalaToIR::translate_part(const sala::BasicBlock& sour
     {
         const auto instruction = translate_part(source_instruction);
         ASSUMPTION(instruction != nullptr);
-        instruction->assign_to_basic_block(basic_block);
+        basic_block->acquire_instruction(instruction);
     }
 
     return basic_block;

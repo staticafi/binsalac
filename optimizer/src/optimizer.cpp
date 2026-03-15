@@ -17,6 +17,7 @@ std::shared_ptr<sala::Program> Optimizer::run(std::shared_ptr<sala::Program> pro
     // TODO: enable user setting of pipeline
     pipeline_mgr_.set_pipeline(std::make_unique<pipeline::TestingPipeline>(std::move(program)));
     pipeline_mgr_.run();
+    ASSUMPTION(std::holds_alternative<std::shared_ptr<sala::Program>>(pipeline_mgr_.program()));
     return std::get<std::shared_ptr<sala::Program>>(pipeline_mgr_.program());
 }
 

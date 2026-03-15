@@ -14,6 +14,14 @@ inline std::string serialize_program_point(const ProgramPoint& pp)
     return builder.str();
 }
 
+inline void set_top_if_present(MayState& state, const objectId id)
+{
+    if (const auto id_iter = state.find(id); id_iter != state.end())
+    {
+        id_iter->second.make_top();
+    }
+}
+
 inline void set_top(MayState& state, const objectId id)
 {
     state.insert_or_assign(id, MayValue::top());
@@ -82,18 +90,17 @@ inline MayState::iterator require_tracked_non_top_pointer(const MayTransferConte
     auto it = context.may_in.find(id);
     if (it == context.may_in.end())
     {
-        std::cout << serialize_program_point(context.pp) << " NUKING " << what << ": not tracked "
-                  << id << std::endl;
-        dump_may_set(context.may_in);
+        // std::cout << serialize_program_point(context.pp) << " NUKING " << what << ": not tracked
+        // "
+        //           << id << std::endl;
         nuke_may(context);
-        set_top(context.may_in, id);
         return context.may_in.end();
     }
 
     if (it->second.is_top)
     {
-        std::cout << serialize_program_point(context.pp) << " NUKING " << what << ": top " << id
-                  << std::endl;
+        // std::cout << serialize_program_point(context.pp) << " NUKING " << what << ": top " << id
+        //           << std::endl;
         nuke_may(context);
         return context.may_in.end();
     }
@@ -131,14 +138,7 @@ bool merge_object_points_to_into_object(MayState& state, const objectId source_i
 
     if (is_top_value(source_may_iter->second))
     {
-        if (target_may_iter == state.end())
-        {
-            state.insert_or_assign(target_id, MayValue::top());
-        }
-        else
-        {
-            target_may_iter->second.make_top();
-        }
+        state.insert_or_assign(target_id, MayValue::top());
         return true;
     }
 
@@ -283,15 +283,22 @@ MayValue load_through_pointer(const MayState& state, const MayValue& ptr_value, 
             continue;
         }
 
-        const auto source_may_iter = state.find(source.id);
-        if (source_may_iter == state.end())
+        if (is_abstract(source.id))
         {
-            any_untracked = true;
-            continue;
+            result.insert({.id = source.id, .offset_flag = false});
+        }
+        else
+        {
+            const auto source_may_iter = state.find(source.id);
+            if (source_may_iter == state.end())
+            {
+                any_untracked = true;
+                continue;
+            }
+            result.join_with(source_may_iter->second);
         }
 
         any_tracked = true;
-        result.join_with(source_may_iter->second);
 
         if (result.is_top)
         {
@@ -312,6 +319,7 @@ MayValue load_through_pointer(const MayState& state, const MayValue& ptr_value, 
 void apply_transfer_may_load(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 2);
+    ASSUMPTION(context.operands_count == 2);
     const auto vN_id = context.operands_id[0];
     const auto vM_id = context.operands_id[1];
 
@@ -329,9 +337,14 @@ void apply_transfer_may_load(const MayTransferContextBundle& context)
         {
             context.may_in.insert_or_assign(vN_id, target_may_iter->second);
         }
+        else if (is_abstract(singleton_target->id))
+        {
+            context.may_in.insert_or_assign(
+                    vN_id, make_singleton(singleton_target->id, singleton_target->offset_flag));
+        }
         else
         {
-            context.may_in.erase(vN_id);
+            set_top(context.may_in, vN_id);
         }
         return;
     }
@@ -350,7 +363,7 @@ void apply_transfer_may_load(const MayTransferContextBundle& context)
 
     if (!any_tracked)
     {
-        context.may_in.erase(vN_id);
+        set_top(context.may_in, vN_id);
         return;
     }
 
@@ -360,6 +373,7 @@ void apply_transfer_may_load(const MayTransferContextBundle& context)
 void apply_transfer_may_store(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 2);
+    ASSUMPTION(context.operands_count == 2);
     const auto vN_id = context.operands_id[0];
     const auto vM_id = context.operands_id[1];
 
@@ -382,6 +396,7 @@ void apply_transfer_may_store(const MayTransferContextBundle& context)
 void apply_transfer_may_memcpy_memmove(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 2);
+    ASSUMPTION(context.operands_count == 2);
     const auto vN_id = context.operands_id[0];
     const auto vM_id = context.operands_id[1];
 
@@ -403,6 +418,7 @@ void apply_transfer_may_memcpy_memmove(const MayTransferContextBundle& context)
 void apply_transfer_may_address(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 2);
+    ASSUMPTION(context.operands_count == 2);
     const auto vN_id = context.operands_id[0];
     const auto vM_id = context.operands_id[1];
     set_singleton(context.may_in, vN_id, {.id = vM_id, .offset_flag = false});
@@ -411,13 +427,15 @@ void apply_transfer_may_address(const MayTransferContextBundle& context)
 void apply_transfer_may_copy(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 2);
+    ASSUMPTION(context.operands_count == 2);
     const auto vN_id = context.operands_id[0];
     const auto xM_id = context.operands_id[1];
 
     const auto xM_id_iter = context.may_in.find(xM_id);
     if (xM_id_iter == context.may_in.end())
     {
-        context.may_in.erase(vN_id);
+        set_top(context.may_in, vN_id);
+        set_top(context.may_in, xM_id);
         return;
     }
 
@@ -430,6 +448,7 @@ void apply_transfer_may_copy(const MayTransferContextBundle& context)
 void apply_transfer_may_alloca(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 1);
+    ASSUMPTION(context.operands_count == 1);
     const auto vN_id = context.operands_id[0];
     set_singleton(context.may_in, vN_id, {.id = grouped_objects::ALLOCA, .offset_flag = false});
 }
@@ -437,6 +456,7 @@ void apply_transfer_may_alloca(const MayTransferContextBundle& context)
 void apply_transfer_may_malloc(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 1);
+    ASSUMPTION(context.operands_count == 1);
     const auto vN_id = context.operands_id[0];
     set_singleton(context.may_in, vN_id, {.id = grouped_objects::HEAP, .offset_flag = false});
 }
@@ -444,6 +464,7 @@ void apply_transfer_may_malloc(const MayTransferContextBundle& context)
 void apply_transfer_may_i2p_p2i(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 2);
+    ASSUMPTION(context.operands_count == 2);
     const auto vN_id          = context.operands_id[0];
     const auto vM_id          = context.operands_id[1];
     const auto vM_id_may_iter = context.may_in.find(vM_id);
@@ -461,22 +482,25 @@ void apply_transfer_may_i2p_p2i(const MayTransferContextBundle& context)
 void apply_transfer_may_moveptr(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 2);
+    ASSUMPTION(context.operands_count == 2);
     const auto vN_id          = context.operands_id[0];
     const auto vM_id          = context.operands_id[1];
     const auto vM_id_may_iter = context.may_in.find(vM_id);
 
     if (vM_id_may_iter == context.may_in.end())
     {
-        std::cout << serialize_program_point(context.pp) << " MOVEPTR: untracked source " << vM_id
-                  << " -> TOP " << vN_id << std::endl;
+        // std::cout << serialize_program_point(context.pp) << " MOVEPTR: untracked source " <<
+        // vM_id
+        //           << " -> TOP " << vN_id << std::endl;
         set_top(context.may_in, vN_id);
+        set_top(context.may_in, vM_id);
         return;
     }
 
     if (vM_id_may_iter->second.is_top)
     {
-        std::cout << serialize_program_point(context.pp) << " MOVEPTR: top source " << vM_id
-                  << " -> TOP " << vN_id << std::endl;
+        // std::cout << serialize_program_point(context.pp) << " MOVEPTR: top source " << vM_id
+        //           << " -> TOP " << vN_id << std::endl;
         set_top(context.may_in, vN_id);
         return;
     }
@@ -497,6 +521,7 @@ void apply_transfer_may_moveptr(const MayTransferContextBundle& context)
 void apply_transfer_may_memset(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 1);
+    ASSUMPTION(context.operands_count == 1);
     const auto vN_id = context.operands_id[0];
 
     const auto vN_id_may_iter = require_tracked_non_top_pointer(context, vN_id, "MEMSET");
@@ -513,11 +538,7 @@ void apply_transfer_may_memset(const MayTransferContextBundle& context)
             continue;
         }
 
-        if (const auto target_may_iter = context.may_in.find(target.id);
-            target_may_iter != context.may_in.end())
-        {
-            target_may_iter->second.make_top();
-        }
+        set_top(context.may_in, target.id);
     }
 }
 
@@ -532,6 +553,7 @@ void apply_transfer_may_call(const MayTransferContextBundle& context)
 void apply_transfer_may_stacksave(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 1);
+    ASSUMPTION(context.operands_count == 1);
     const auto lN_id = context.operands_id[0];
     set_singleton(context.may_in, lN_id, {.id = context.last_local_id, .offset_flag = false});
 }
@@ -539,13 +561,14 @@ void apply_transfer_may_stacksave(const MayTransferContextBundle& context)
 void apply_transfer_may_stackrestore(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 1);
+    ASSUMPTION(context.operands_count == 1);
     const auto vN_id          = context.operands_id[0];
     const auto vN_id_may_iter = context.may_in.find(vN_id);
 
     if (vN_id_may_iter == context.may_in.end())
     {
-        std::cout << serialize_program_point(context.pp) << " NUKING STACKRESTORE: untracked"
-                  << std::endl;
+        // std::cout << serialize_program_point(context.pp) << " NUKING STACKRESTORE: untracked"
+        //           << std::endl;
         nuke_may(context);
         set_top(context.may_in, vN_id);
         return;
@@ -553,8 +576,8 @@ void apply_transfer_may_stackrestore(const MayTransferContextBundle& context)
 
     if (!contains_only_objectId(vN_id_may_iter->second, context.last_local_id))
     {
-        std::cout << serialize_program_point(context.pp)
-                  << " NUKING STACKRESTORE: invalid saved stack marker" << std::endl;
+        // std::cout << serialize_program_point(context.pp)
+        //           << " NUKING STACKRESTORE: invalid saved stack marker" << std::endl;
         nuke_may(context);
         return;
     }
@@ -563,6 +586,7 @@ void apply_transfer_may_stackrestore(const MayTransferContextBundle& context)
 void apply_transfer_may_va_start(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 1);
+    ASSUMPTION(context.operands_count == 1);
     const auto vN_id          = context.operands_id[0];
     const auto vN_id_may_iter = require_tracked_non_top_pointer(context, vN_id, "VA_START");
     if (vN_id_may_iter == context.may_in.end())
@@ -595,14 +619,15 @@ void apply_transfer_may_va_start(const MayTransferContextBundle& context)
 void apply_transfer_may_va_end(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 1);
+    ASSUMPTION(context.operands_count == 1);
     constexpr auto max_vargarg_block_depth = 2;
 
     const auto vN_id = context.operands_id[0];
     if (!is_objectId_reachable(context, vN_id, grouped_objects::VARGARG_BLOCK,
                                max_vargarg_block_depth))
     {
-        std::cout << serialize_program_point(context.pp)
-                  << " NUKING VA_END: does not contain VARGARG_BLOCK" << std::endl;
+        // std::cout << serialize_program_point(context.pp)
+        //           << " NUKING VA_END: does not contain VARGARG_BLOCK" << std::endl;
         nuke_may(context);
     }
 }
@@ -610,6 +635,7 @@ void apply_transfer_may_va_end(const MayTransferContextBundle& context)
 void apply_transfer_may_va_arg(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 2);
+    ASSUMPTION(context.operands_count == 2);
     const auto vN_id = context.operands_id[0];
     const auto vM_id = context.operands_id[1];
 
@@ -621,8 +647,8 @@ void apply_transfer_may_va_arg(const MayTransferContextBundle& context)
 
     if (!contains_objectId(vM_id_may_iter->second, grouped_objects::VARGARG_BLOCK))
     {
-        std::cout << serialize_program_point(context.pp)
-                  << " NUKING VA_ARG: does not contain VARGARG_BLOCK" << std::endl;
+        // std::cout << serialize_program_point(context.pp)
+        //           << " NUKING VA_ARG: does not contain VARGARG_BLOCK" << std::endl;
         nuke_may(context);
         return;
     }
@@ -643,6 +669,7 @@ void apply_transfer_may_va_arg(const MayTransferContextBundle& context)
 void apply_transfer_may_va_copy(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 2);
+    ASSUMPTION(context.operands_count == 2);
     constexpr auto max_vargarg_block_depth = 2;
     const auto     vN_id                   = context.operands_id[0];
     const auto     vM_id                   = context.operands_id[1];
@@ -650,8 +677,8 @@ void apply_transfer_may_va_copy(const MayTransferContextBundle& context)
     const auto vN_id_may_iter = context.may_in.find(vN_id);
     if (vN_id_may_iter == context.may_in.end())
     {
-        std::cout << serialize_program_point(context.pp) << " NUKING VA_COPY: vN untracked"
-                  << std::endl;
+        // std::cout << serialize_program_point(context.pp) << " NUKING VA_COPY: vN untracked"
+        //           << std::endl;
         nuke_may(context);
         return;
     }
@@ -659,8 +686,8 @@ void apply_transfer_may_va_copy(const MayTransferContextBundle& context)
     if (!is_objectId_reachable(context, vM_id, grouped_objects::VARGARG_BLOCK,
                                max_vargarg_block_depth))
     {
-        std::cout << serialize_program_point(context.pp)
-                  << " NUKING VA_COPY: vM does not contain VARGARG_BLOCK" << std::endl;
+        // std::cout << serialize_program_point(context.pp)
+        //           << " NUKING VA_COPY: vM does not contain VARGARG_BLOCK" << std::endl;
         nuke_may(context);
         return;
     }
@@ -777,7 +804,8 @@ void apply_transfer_may(const MayTransferContextBundle& context)
     {
         ASSUMPTION(context.operands_id.size() >= 1);
         const auto vN_id = context.operands_id[0];
-        context.may_in.erase(vN_id);
+        set_top(context.may_in, vN_id);
+
         return;
     }
     }

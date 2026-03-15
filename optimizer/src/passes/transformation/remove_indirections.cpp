@@ -17,16 +17,16 @@ namespace
 {
 struct TransformationContext
 {
-    program::InstructionIR&     instruction;
+    program::InstructionIR_sptr instruction;
     program::OperandIRVecR_iter indirection_iter;
-    program::OperandIR_raw      target;
+    program::OperandIR_sptr     target;
 };
 
 class FunctionContext
 {
   public:
     explicit FunctionContext(program::FunctionIR_sptr function_ir)
-        : function_{std::move(function_ir)}, function_query_(function_ir)
+        : function_{std::move(function_ir)}, function_query_(function_)
     {
     }
 
@@ -62,18 +62,31 @@ class FunctionContext
             default:
                 break;
             }
-
-            // we have to perform the transformations at the end of the processed basic_block
-            process_bb_queue();
         }
+
+        // we have to perform the transformations at the end of the processed basic_block
+        process_transforms();
     }
 
-    void process_bb_queue()
+    void process_transforms()
     {
-        for (const auto& transformation : to_transform_bb_queue)
+        while (!to_transform_.empty())
         {
-            transformation.instruction.get_opcode() = sala::Instruction::Opcode::COPY;
-            *transformation.indirection_iter        = transformation.target;
+            const auto& transformation = to_transform_.back();
+
+            transformation.instruction->get_opcode() = sala::Instruction::Opcode::COPY;
+            if (const auto var = std::get_if<program::VariableIR_sptr>(&transformation.target))
+            {
+
+                *transformation.indirection_iter = var->get();
+            }
+            else if (const auto constant =
+                             std::get_if<program::ConstantIR_sptr>(&transformation.target))
+            {
+
+                *transformation.indirection_iter = constant->get();
+            }
+            to_transform_.pop_back();
         }
     }
 
@@ -97,12 +110,12 @@ class FunctionContext
         }
 
         const auto& indirect_variable = *(std::get<program::VariableIR_raw>(indirect_operand));
-        if (indirect_variable.get_context() != program::VariableIR::Context::LOCAL)
-        {
-            // TODO: think about replacing also not local variables
-            // - we can have *ptr_to_static = x, then we can perform static = x ?
-            return;
-        }
+        // if (indirect_variable.get_context() != program::VariableIR::Context::LOCAL)
+        // {
+        //     // TODO: think about replacing also not local variables
+        //     // - we can have *ptr_to_static = x, then we can perform static = x ?
+        //     return;
+        // }
 
         const auto points_to_result = function_query_.before(instruction, indirect_variable);
         if (!points_to_result.must.has_value())
@@ -121,16 +134,18 @@ class FunctionContext
             return;
         }
 
-        // FIXME: fix this
-        //  to_transform_bb_queue.emplace_back(instruction, indirect_operand_iter,
-        //                                     target_operand.value());
+        TransformationContext to_transform;
+        to_transform.instruction      = instruction;
+        to_transform.indirection_iter = indirect_operand_iter;
+        to_transform.target           = target_operand.value();
+        to_transform_.push_back(std::move(to_transform));
     }
 
   private:
     program::FunctionIR_sptr        function_;
     analysis::PointsToQueryFunction function_query_;
 
-    std::vector<TransformationContext> to_transform_bb_queue;
+    std::vector<TransformationContext> to_transform_;
 };
 } // namespace
 
@@ -146,9 +161,6 @@ class RemoveIndirections::Impl
     void run_function_contexts()
     {
 
-        const auto exec_policy = std::execution::seq;
-        contexts_.reserve(sala_ir_->get_functions().size());
-
         for (const auto& function : sala_ir_->get_functions())
         {
             if (function->get_initializer_flag())
@@ -156,17 +168,12 @@ class RemoveIndirections::Impl
                 // TODO: currently ignored look into correctness
                 continue;
             }
-            contexts_.emplace_back(function);
+            FunctionContext(function).run();
         }
-
-        std::for_each(exec_policy, contexts_.begin(), contexts_.end(),
-                      [](auto& ctx) { ctx.run(); });
     };
 
   private:
     program::ProgramIR_sptr sala_ir_;
-
-    std::vector<FunctionContext> contexts_;
 };
 
 RemoveIndirections::~RemoveIndirections() = default;

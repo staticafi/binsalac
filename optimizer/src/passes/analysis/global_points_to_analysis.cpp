@@ -8,6 +8,7 @@
 #include <optimizer/programIR/variable_ir.hpp>
 #include <optimizer/utils/points_to/import.hpp>
 
+#include <queue>
 #include <utility/assumptions.hpp>
 
 #include <map>
@@ -15,7 +16,6 @@
 namespace optimizer::passes
 {
 using utils::MayState;
-using utils::MustState;
 using utils::Object;
 using utils::objectId;
 
@@ -119,11 +119,9 @@ struct GlobalPointsToAnalysis::Impl
 
     void init_states()
     {
-        out_may_.assign(NB_, {});
-        out_must_.assign(NB_, {});
+        out_may_.reset(NB_);
 
         in_may_scratch_.clear();
-        in_must_scratch_.clear();
 
         first_visit_.assign(NB_, true);
     }
@@ -148,7 +146,6 @@ struct GlobalPointsToAnalysis::Impl
             in_wl[b] = 0;
 
             auto& may        = in_may_scratch_;
-            auto& must       = in_must_scratch_;
             auto  first_pred = false;
 
             for (auto p : preds_[b])
@@ -160,21 +157,18 @@ struct GlobalPointsToAnalysis::Impl
 
                 if (!first_pred)
                 {
-                    must       = out_must_[p];
-                    may        = out_may_[p];
+                    may        = out_may_.get(p);
                     first_pred = true;
                 }
                 else
                 {
-                    utils::state_join_or_strict(may, out_may_[p]);
-                    utils::state_join_and(must, out_must_[p]);
+                    utils::state_join_or_strict(may, out_may_.get(p));
                 }
             }
 
             if (!first_pred)
             {
                 may.clear();
-                must.clear();
             }
 
             // apply transfer functions modifying may/must-IN to OUT inplace
@@ -187,18 +181,6 @@ struct GlobalPointsToAnalysis::Impl
                 utils::MayTransferContextBundle may_transfer_context{
                         .opcode         = instruction->get_opcode(),
                         .may_in         = may,
-                        .must_in        = MustState{must},
-                        .global_objects = global_objects_,
-                        .local_objects  = local_objects_,
-                        .operands_id    = operands_id_scratch_,
-                        .operands_count = relevant_ops_size,
-                        .last_local_id  = last_local_id_,
-                };
-
-                utils::MustTransferContextBundle must_transfer_context{
-                        .opcode         = instruction->get_opcode(),
-                        .must_in        = must,
-                        .may_in         = may,
                         .global_objects = global_objects_,
                         .local_objects  = local_objects_,
                         .operands_id    = operands_id_scratch_,
@@ -207,15 +189,14 @@ struct GlobalPointsToAnalysis::Impl
                 };
 
                 // WARNING: order of calls is important since we modify the states in-place
-                utils::apply_transfer_must(must_transfer_context);
                 utils::apply_transfer_may(may_transfer_context);
             }
 
             first_visit_[b] = false;
-            if (out_may_[b] != may || out_must_[b] != must)
+            if (out_may_.get(b) != may)
             {
-                std::swap(out_may_[b], may);
-                std::swap(out_must_[b], must);
+                (void)out_may_.set(b, may);
+                may.clear();
 
                 for (const auto& ws : blocks_[b]->get_successors())
                 {
@@ -249,24 +230,14 @@ struct GlobalPointsToAnalysis::Impl
         for (std::size_t b = 0; b < NB_; ++b)
         {
             // IN from final OUTs of preds
-            MayState  in_may{};
-            MustState in_must{};
+            MayState in_may{};
             for (auto p : preds_[b])
             {
-                utils::state_join_or_strict(in_may, out_may_[p]);
-            }
-            if (!preds_[b].empty())
-            {
-                in_must = out_must_[preds_[b][0]];
-                for (std::size_t j = 1; j < preds_[b].size(); ++j)
-                {
-                    utils::state_join_and(in_must, out_must_[preds_[b][j]]);
-                }
+                utils::state_join_or_strict(in_may, out_may_.get(p));
             }
 
-            auto bb_points_to_meta     = std::make_unique<metadata::points_to::BasicBlockMeta>();
-            bb_points_to_meta->must_in = in_must;
-            bb_points_to_meta->may_in  = in_may;
+            auto bb_points_to_meta       = std::make_unique<metadata::points_to::BasicBlockMeta>();
+            bb_points_to_meta->may_in_id = out_may_.store()->intern(in_may);
             blocks_[b]->get_metadata().set(std::move(bb_points_to_meta));
 
             // Walk once to get out states
@@ -278,18 +249,6 @@ struct GlobalPointsToAnalysis::Impl
                 utils::MayTransferContextBundle may_transfer_context{
                         .opcode         = instruction->get_opcode(),
                         .may_in         = in_may,
-                        .must_in        = MustState{in_must},
-                        .global_objects = global_objects_,
-                        .local_objects  = local_objects_,
-                        .operands_id    = operands_id_scratch_,
-                        .operands_count = relevant_ops_size,
-                        .last_local_id  = last_local_id_,
-                };
-
-                utils::MustTransferContextBundle must_transfer_context{
-                        .opcode         = instruction->get_opcode(),
-                        .must_in        = in_must,
-                        .may_in         = in_may,
                         .global_objects = global_objects_,
                         .local_objects  = local_objects_,
                         .operands_id    = operands_id_scratch_,
@@ -298,7 +257,6 @@ struct GlobalPointsToAnalysis::Impl
                 };
 
                 // WARNING: order of calls is important since we modify the states in-place
-                utils::apply_transfer_must(must_transfer_context);
                 utils::apply_transfer_may(may_transfer_context);
             }
 
@@ -307,24 +265,24 @@ struct GlobalPointsToAnalysis::Impl
             {
                 if (first_end_found)
                 {
-                    utils::state_join_and(program_points_to_meta->must_out, out_must_[b]);
-                    utils::state_join_or_strict(program_points_to_meta->may_out, out_may_[b]);
+                    utils::state_join_or_strict(program_points_to_meta->may_out, out_may_.get(b));
                 }
                 else
                 {
-                    program_points_to_meta->may_out  = out_may_[b];
-                    program_points_to_meta->must_out = out_must_[b];
-                    first_end_found                  = true;
+                    program_points_to_meta->may_out = out_may_.get(b);
+                    first_end_found                 = true;
                 }
             }
         }
         // set static initializer metadata
-        auto function_meta           = std::make_unique<metadata::points_to::FunctionMeta>();
-        function_meta->local_objects = std::move(local_objects_);
+        auto function_meta                = std::make_unique<metadata::points_to::FunctionMeta>();
+        function_meta->local_objects      = std::move(local_objects_);
+        function_meta->bb_may_state_store = out_may_.store();
         static_init_->get_metadata().set(std::move(function_meta));
 
         // set program metadata
         program_points_to_meta->global_objects = std::move(global_objects_);
+        program_points_to_meta->transfer_may_  = utils::apply_transfer_may;
         sala_ir_->get_metadata().set(std::move(program_points_to_meta));
     }
 
@@ -363,8 +321,7 @@ struct GlobalPointsToAnalysis::Impl
     program::ProgramIR_sptr  sala_ir_;
     program::FunctionIR_sptr static_init_;
 
-    MayState  in_may_scratch_;
-    MustState in_must_scratch_;
+    MayState in_may_scratch_;
 
     utils::ObjectPool global_objects_;
     utils::ObjectPool local_objects_;
@@ -374,9 +331,9 @@ struct GlobalPointsToAnalysis::Impl
     std::vector<objectId> operands_id_scratch_;
     objectId              last_local_id_;
 
-    std::vector<MayState>  out_may_;
-    std::vector<MustState> out_must_;
-    bool                   accessed_undefined_ = false;
+    // std::vector<MayState> out_may_;
+    utils::BasicBlockMayStateSlots out_may_;
+    bool                           accessed_undefined_ = false;
 
     std::size_t N_{0}, NB_{0};
     std::size_t entry_{0};

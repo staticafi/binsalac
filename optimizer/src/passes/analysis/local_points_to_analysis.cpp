@@ -19,7 +19,6 @@ namespace optimizer::passes
 {
 namespace grouped_objects = utils::grouped_objects;
 using utils::MayState;
-using utils::MustState;
 using utils::Object;
 using utils::objectId;
 
@@ -39,10 +38,9 @@ struct FunctionContext
         init_data();
     }
 
-    void run(MustState global_must_seed, MayState global_may_seed)
+    void run(MayState global_may_seed)
     {
-        global_may_seed_  = std::move(global_may_seed);
-        global_must_seed_ = std::move(global_must_seed);
+        global_may_seed_ = std::move(global_may_seed);
         solve();
     }
 
@@ -50,22 +48,19 @@ struct FunctionContext
     {
         for (std::size_t b = 0; b < NB_; ++b)
         {
-            auto [must_in, may_in] = reconstruct_materialized_in_state(b);
-            attach_block_points_to_metadata(b, std::move(must_in), std::move(may_in));
+            auto may_in = reconstruct_materialized_in_state(b);
+            attach_block_points_to_metadata(b, std::move(may_in));
         }
 
         attach_function_points_to_metadata();
     }
 
-    std::optional<std::pair<MustState, MayState>> get_after_global_states()
+    std::optional<MayState> get_after_global_states()
     {
-        std::optional<MustState> result_must;
-        std::optional<MayState>  result_may;
+        std::optional<MayState> result_may;
 
-        MustState bb_out_global_must_scratch;
-        MayState  bb_out_global_may_scratch;
+        MayState bb_out_global_may_scratch;
 
-        bb_out_global_must_scratch.reserve(global_must_seed_.size());
         bb_out_global_may_scratch.reserve(global_may_seed_.size());
 
         for (const auto exit_bb : exit_basic_blocks)
@@ -75,17 +70,7 @@ struct FunctionContext
                 continue;
             }
 
-            export_exit_block_to_global_state(exit_bb, bb_out_global_must_scratch,
-                                              bb_out_global_may_scratch);
-
-            if (!result_must.has_value())
-            {
-                result_must = bb_out_global_must_scratch;
-            }
-            else
-            {
-                utils::points_to::state_join_and(result_must.value(), bb_out_global_must_scratch);
-            }
+            export_exit_block_to_global_state(exit_bb, bb_out_global_may_scratch);
 
             if (!result_may.has_value())
             {
@@ -98,12 +83,7 @@ struct FunctionContext
             }
         }
 
-        if (!result_must.has_value() || !result_may.has_value())
-        {
-            return {};
-        }
-
-        return {{std::move(result_must.value()), std::move(result_may.value())}};
+        return result_may;
     }
 
   private:
@@ -196,64 +176,42 @@ struct FunctionContext
             }
         }
     }
-
-    void export_global_object_must(const objectId object_id, const MustState& local_out_must,
-                                   MustState& exported_must) const
+    void export_exit_block_to_global_state(const std::size_t end_bb, MayState& exported_may) const
     {
-        const auto object_end_bb_iter = local_out_must.find(object_id);
-        if (object_end_bb_iter == local_out_must.end())
-        {
-            return;
-        }
-
-        const auto target = object_end_bb_iter->second;
-        if (global_objects_->contains(target.id) || target.id == grouped_objects::HEAP)
-        {
-            exported_must[object_id] = target;
-        }
-    }
-
-    void export_exit_block_to_global_state(const std::size_t end_bb, MustState& exported_must,
-                                           MayState& exported_may) const
-    {
-        exported_must.clear();
         exported_may.clear();
 
-        const auto& out_must = out_must_[end_bb];
-        const auto& out_may  = out_may_[end_bb];
+        const auto& out_may = out_may_.get(end_bb);
 
         for (const auto& [object_id, object_info] : *global_objects_)
         {
             export_global_object_may(object_id, out_may, exported_may);
-            export_global_object_must(object_id, out_must, exported_must);
         }
     }
 
-    void attach_block_points_to_metadata(const std::size_t b, MustState must_in, MayState may_in)
+    void attach_block_points_to_metadata(const std::size_t b, MayState may_in)
     {
-        auto bb_points_to_meta     = std::make_unique<metadata::points_to::BasicBlockMeta>();
-        bb_points_to_meta->may_in  = std::move(may_in);
-        bb_points_to_meta->must_in = std::move(must_in);
+        auto bb_points_to_meta       = std::make_unique<metadata::points_to::BasicBlockMeta>();
+        bb_points_to_meta->may_in_id = out_may_.store()->intern(std::move(may_in));
         blocks_[b]->get_metadata().set(std::move(bb_points_to_meta));
     }
 
     void attach_function_points_to_metadata()
     {
-        auto function_meta           = std::make_unique<metadata::points_to::FunctionMeta>();
-        function_meta->local_objects = std::move(local_objects_);
+        auto function_meta                = std::make_unique<metadata::points_to::FunctionMeta>();
+        function_meta->local_objects      = std::move(local_objects_);
+        function_meta->bb_may_state_store = out_may_.store();
         function_->get_metadata().set(std::move(function_meta));
     }
 
-    std::pair<MustState, MayState> reconstruct_materialized_in_state(const std::size_t b) const
+    MayState reconstruct_materialized_in_state(const std::size_t b) const
     {
-        MayState  may_in{};
-        MustState must_in{};
+        MayState may_in{};
 
         bool in_initialized = false;
 
         if (b == entry_)
         {
-            build_entry_seed_states(must_in, may_in);
+            build_entry_seed_states(may_in);
             in_initialized = true;
         }
 
@@ -266,25 +224,23 @@ struct FunctionContext
 
             if (!in_initialized)
             {
-                must_in        = out_must_[p];
-                may_in         = out_may_[p];
+                may_in         = out_may_.get(p);
                 in_initialized = true;
             }
             else
             {
-                utils::state_join_and(must_in, out_must_[p]);
-                utils::state_join_or_strict(may_in, out_may_[p]);
+                utils::state_join_or_strict(may_in, out_may_.get(p));
             }
         }
 
         if (!in_initialized)
         {
-            must_in.clear();
             may_in.clear();
         }
 
-        return {std::move(must_in), std::move(may_in)};
+        return may_in;
     }
+
     void init_local_objects()
     {
         objectId id = id_start_;
@@ -324,13 +280,11 @@ struct FunctionContext
     void init_states()
     {
         NB_ = function_->get_basic_blocks().size();
-        out_may_.assign(NB_, {});
-        out_must_.assign(NB_, {});
+        out_may_.reset(NB_);
 
         has_out_.assign(NB_, false);
 
         in_may_scratch_.clear();
-        in_must_scratch_.clear();
     }
 
     void build_flattened_cfg()
@@ -397,10 +351,9 @@ struct FunctionContext
         }
     }
 
-    void build_entry_seed_states(MustState& must_in, MayState& may_in) const
+    void build_entry_seed_states(MayState& may_in) const
     {
-        must_in = global_must_seed_;
-        may_in  = global_may_seed_;
+        may_in = global_may_seed_;
 
         for (const auto param : assumed_ptr_params_)
         {
@@ -409,16 +362,15 @@ struct FunctionContext
         }
     }
 
-    void build_solver_in_state(const std::size_t b, MustState& must_in, MayState& may_in)
+    void build_solver_in_state(const std::size_t b, MayState& may_in)
     {
-        must_in.clear();
         may_in.clear();
 
         bool in_initialized = false;
 
         if (b == entry_)
         {
-            build_entry_seed_states(must_in, may_in);
+            build_entry_seed_states(may_in);
             in_initialized = true;
         }
 
@@ -431,25 +383,22 @@ struct FunctionContext
 
             if (!in_initialized)
             {
-                must_in        = out_must_[p];
-                may_in         = out_may_[p];
+                may_in         = out_may_.get(p);
                 in_initialized = true;
             }
             else
             {
-                utils::state_join_and(must_in, out_must_[p]);
-                utils::state_join_or_strict(may_in, out_may_[p]);
+                utils::state_join_or_strict(may_in, out_may_.get(p));
             }
         }
 
         if (!in_initialized)
         {
-            must_in.clear();
             may_in.clear();
         }
     }
 
-    void apply_block_transfers(const std::size_t b, MustState& must_in, MayState& may_in)
+    void apply_block_transfers(const std::size_t b, MayState& may_in)
     {
         std::size_t instruction_id = 0;
 
@@ -461,7 +410,6 @@ struct FunctionContext
                     .pp             = {.function = _id, .bb = b, .instr = instruction_id},
                     .opcode         = instruction->get_opcode(),
                     .may_in         = may_in,
-                    .must_in        = MustState{must_in},
                     .global_objects = *global_objects_,
                     .local_objects  = local_objects_,
                     .operands_id    = operands_id_scratch_,
@@ -469,47 +417,27 @@ struct FunctionContext
                     .last_local_id  = last_local_id_,
             };
 
-            utils::MustTransferContextBundle must_transfer_context{
-                    .opcode         = instruction->get_opcode(),
-                    .must_in        = must_in,
-                    .may_in         = may_in,
-                    .global_objects = *global_objects_,
-                    .local_objects  = local_objects_,
-                    .operands_id    = operands_id_scratch_,
-                    .operands_count = relevant_ops_size,
-                    .last_local_id  = last_local_id_,
-            };
-
-            utils::apply_transfer_must(must_transfer_context);
             utils::apply_transfer_may(may_transfer_context);
             ++instruction_id;
         }
     }
 
-    bool block_out_changed(const std::size_t b, const MustState& must_in,
-                           const MayState& may_in) const
+    bool block_out_changed(const std::size_t b, const MayState& may_in) const
     {
-        // if (out_may_[b] != may_in)
-        // {
-        //     std::cout << "BB:" << b << "BEFORE MAYSTATE\n";
-        //     dump_may_set(out_may_[b]);
-        //     std::cout << "BB:" << b << "AFTER MAYSTATE\n";
-        //     dump_may_set(may_in);
-        // }
-        // else if (out_must_[b] != must_in)
-        // {
-        //     std::cout << "BB:" << b << "BEFORE MUST STATE \n";
-        //     dump_must_set(out_must_[b]);
-        //     std::cout << "BB:" << b << "AFTER MUST STATE\n";
-        //     dump_must_set(must_in);
-        // }
-        return out_may_[b] != may_in || out_must_[b] != must_in;
+        if (!out_may_.equals(b, may_in))
+        {
+            std::cout << "BB:" << b << "BEFORE MAYSTATE\n";
+            dump_may_set(out_may_.get(b));
+            std::cout << "BB:" << b << "AFTER MAYSTATE\n";
+            dump_may_set(may_in);
+        }
+        return !out_may_.equals(b, may_in);
     }
 
-    void commit_block_out_state(const std::size_t b, MustState& must_in, MayState& may_in)
+    void commit_block_out_state(const std::size_t b, MayState& may_in)
     {
-        std::swap(out_may_[b], may_in);
-        std::swap(out_must_[b], must_in);
+        out_may_.set(b, may_in);
+        may_in.clear();
     }
 
     void enqueue_successors_if_reachable(const std::size_t b, std::queue<std::size_t>& worklist,
@@ -561,16 +489,15 @@ struct FunctionContext
             worklist.pop();
             in_worklist[b] = false;
 
-            auto& may_in  = in_may_scratch_;
-            auto& must_in = in_must_scratch_;
+            auto& may_in = in_may_scratch_;
 
-            build_solver_in_state(b, must_in, may_in);
-            apply_block_transfers(b, must_in, may_in);
+            build_solver_in_state(b, may_in);
+            apply_block_transfers(b, may_in);
 
-            const bool changed = !has_out_[b] || block_out_changed(b, must_in, may_in);
+            const bool changed = !has_out_[b] || block_out_changed(b, may_in);
             if (changed)
             {
-                commit_block_out_state(b, must_in, may_in);
+                commit_block_out_state(b, may_in);
                 has_out_[b] = true;
                 enqueue_successors_if_reachable(b, worklist, in_worklist);
             }
@@ -622,8 +549,7 @@ struct FunctionContext
     std::size_t              _id;
     program::FunctionIR_sptr function_;
 
-    MayState  global_may_seed_;
-    MustState global_must_seed_;
+    MayState global_may_seed_;
 
     utils::ObjectPool* global_objects_{};
     utils::ObjectPool  local_objects_;
@@ -631,11 +557,10 @@ struct FunctionContext
     utils::SparseSet<objectId>    assumed_ptr_params_;
     utils::SparseSet<std::size_t> exit_basic_blocks;
 
-    std::vector<MayState>  out_may_;
-    std::vector<MustState> out_must_;
+    // std::vector<MayState> out_may_;
+    utils::BasicBlockMayStateSlots out_may_;
 
     MayState              in_may_scratch_;
-    MustState             in_must_scratch_;
     std::vector<objectId> operands_id_scratch_;
 
     std::size_t NB_{0};
@@ -689,48 +614,43 @@ struct Impl
         bool  fixpoint_reached = false;
         do
         {
-            std::optional<MustState> fixpoint_must;
-            std::optional<MayState>  fixpoint_may;
+            std::optional<MayState> fixpoint_may;
             for (auto& context : contexts_)
             {
-                context->run(program_metadata.must_out, program_metadata.may_out);
+                context->run(program_metadata.may_out);
             }
             for (auto& context : contexts_)
             {
-                auto possible_out_states = context->get_after_global_states();
-                if (!possible_out_states.has_value())
+                auto possible_out_state = context->get_after_global_states();
+                if (!possible_out_state.has_value())
                 {
                     // function has no exit we do not propagate the information
                     continue;
                 }
 
-                auto& global_must_out = possible_out_states->first;
-                auto& global_may_out  = possible_out_states->second;
+                auto& global_may_out = possible_out_state;
 
-                if (!fixpoint_must.has_value())
+                if (!fixpoint_may.has_value())
                 {
-                    fixpoint_must = std::move(global_must_out);
-                    fixpoint_may  = std::move(global_may_out);
+                    fixpoint_may = std::move(global_may_out);
                 }
                 else
                 {
-                    utils::points_to::state_join_or_strict(fixpoint_may.value(), global_may_out,
+                    utils::points_to::state_join_or_strict(fixpoint_may.value(),
+                                                           global_may_out.value(),
                                                            grouped_objects::CALL_ORDER_DISCREPANCY);
-                    utils::points_to::state_join_and(fixpoint_must.value(), global_must_out);
                 }
             }
 
-            if (!fixpoint_may.has_value() && !fixpoint_must.has_value())
+            if (!fixpoint_may.has_value())
             {
                 // e.g. One function (not static init) which has no exit
                 fixpoint_reached = true;
             }
             else
             {
-                fixpoint_reached = fixpoint_must.value() == program_metadata.must_out &&
-                                   fixpoint_may.value() == program_metadata.may_out;
-                program_metadata.must_out = std::move(fixpoint_must.value());
-                program_metadata.may_out  = std::move(fixpoint_may.value());
+                fixpoint_reached         = fixpoint_may.value() == program_metadata.may_out;
+                program_metadata.may_out = std::move(fixpoint_may.value());
             }
         } while (!fixpoint_reached);
     };

@@ -1,22 +1,26 @@
+#ifndef OPTIMIZER_PASSES_DEBUG_DUMP_AVAIL_COPY_HPP_INCLUDED
+#define OPTIMIZER_PASSES_DEBUG_DUMP_AVAIL_COPY_HPP_INCLUDED
 
-#ifndef OPTIMIZER_PASSES_DEBUG_DUMP_POINTS_TO_HPP_INCLUDED
-#define OPTIMIZER_PASSES_DEBUG_DUMP_POINTS_TO_HPP_INCLUDED
+#include <optimizer/programIR/program_ir.hpp>
+
 #include <memory>
-#include <optimizer/programIR/ir_types.hpp>
 
 namespace optimizer::passes
 {
 
-class DumpPointsTo
+class DumpAvailCopy
 {
   public:
-    DumpPointsTo();
-    ~DumpPointsTo();
+    DumpAvailCopy();
+    ~DumpAvailCopy();
+
     program::ProgramIR_sptr run(program::ProgramIR_sptr sala_ir);
 
   private:
     struct Impl;
     std::unique_ptr<Impl> pImpl_;
 };
+
 } // namespace optimizer::passes
+
 #endif

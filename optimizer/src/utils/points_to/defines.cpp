@@ -1,5 +1,9 @@
 #include <optimizer/utils/points_to/defines.hpp>
 
+#include <iostream>
+#include <queue>
+#include <set>
+
 namespace optimizer::utils::points_to
 {
 
@@ -29,7 +33,7 @@ bool is_objectId_reachable(const MayTransferContextBundle& context, objectId sou
         return true;
     }
 
-    std::unordered_set<objectId>                 seen;
+    std::set<objectId>                           seen;
     std::queue<std::pair<objectId, std::size_t>> wl;
 
     seen.insert(source);
@@ -106,6 +110,7 @@ void state_join_or_strict(MayState& A, const MayState& B, const objectId extensi
     {
         if (!B.contains(target) && !pointees.is_top)
         {
+            pointees.make_top();
             if (use_call_order_discrepancy)
             {
                 pointees.add_call_order_discrepancy();
@@ -132,6 +137,7 @@ void state_join_or_strict(MayState& A, const MayState& B, const objectId extensi
             else
             {
                 MayValue seeded = transfer;
+                seeded.make_top();
                 if (use_call_order_discrepancy)
                 {
                     seeded.add_call_order_discrepancy();
@@ -140,70 +146,12 @@ void state_join_or_strict(MayState& A, const MayState& B, const objectId extensi
                 {
                     seeded.add_merge_unknown();
                 }
-                A.emplace(source, std::move(seeded));
+                A.insert_or_assign(source, std::move(seeded));
             }
         }
         else
         {
             source_iter->second.join_with(transfer);
-        }
-    }
-}
-
-void state_join_and(MustState& A, const MustState& B)
-{
-    std::vector<MustState::key_type> to_erase;
-    to_erase.reserve(A.size());
-
-    for (auto A_kvp_iter = A.begin(); A_kvp_iter != A.end(); ++A_kvp_iter)
-    {
-        const auto B_kvp_iter = B.find(A_kvp_iter->first);
-        if (B_kvp_iter == B.end() || B_kvp_iter->second != A_kvp_iter->second)
-        {
-            to_erase.push_back(A_kvp_iter->first);
-        }
-    }
-
-    for (const auto& elem : to_erase)
-    {
-        A.erase(elem);
-    }
-}
-
-void transitive_kill(MustState& must_in, const objectId id, const MayState& may)
-{
-    std::unordered_set<objectId> seen;
-    std::queue<objectId>         wl;
-
-    if (seen.insert(id).second)
-    {
-        wl.push(id);
-    }
-
-    while (!wl.empty())
-    {
-        const auto to_kill = wl.front();
-        wl.pop();
-
-        must_in.erase(to_kill);
-
-        const auto to_kill_may_iter = may.find(to_kill);
-        if (to_kill_may_iter == may.end() || to_kill_may_iter->second.is_top)
-        {
-            continue;
-        }
-
-        for (const auto& child : to_kill_may_iter->second)
-        {
-            if (!is_reachable_state_target(child.id))
-            {
-                continue;
-            }
-
-            if (seen.insert(child.id).second)
-            {
-                wl.push(child.id);
-            }
         }
     }
 }
@@ -220,70 +168,24 @@ void dump_may_set(const MayState& may_in)
     std::cout << "^^^^^^^^^^^^^ END ^^^^^^^^^^^^^ \n";
 }
 
-void dump_must_set(const MustState& must_in)
+void dump_must_set(const MayState& may_in)
 {
-    std::cout << "========== DUMPING MUST =========== \n";
-    for (const auto& kvp : must_in)
+    std::cout << "========== DUMPING MAY =========== \n";
+    for (const auto& kvp : may_in)
     {
-        std::cout << kvp.first << " = " << kvp.second;
+        const auto must_fact = kvp.second.must_fact();
+        if (must_fact.has_value())
+        {
+            std::cout << kvp.first << " = " << must_fact.value();
+        }
+        else
+        {
+            std::cout << kvp.first << " = nan";
+        }
         std::cout << ";\n ";
     }
     std::cout << "<<\n";
     std::cout << "^^^^^^^^^^^^^ END ^^^^^^^^^^^^^ \n";
-}
-
-// Kill must information reachable through dereferenceable may edges.
-// Non-state-cell targets are ignored.
-void nuke_reachable_must(const objectId source, const MustTransferContextBundle& context)
-{
-    std::unordered_set<objectId> seen;
-    std::queue<objectId>         wl;
-
-    const auto source_may_iter = context.may_in.find(source);
-    if (source_may_iter == context.may_in.end() || source_may_iter->second.is_top)
-    {
-        return;
-    }
-
-    for (const auto& target : source_may_iter->second)
-    {
-        if (!is_reachable_state_target(target.id))
-        {
-            continue;
-        }
-
-        if (seen.insert(target.id).second)
-        {
-            wl.push(target.id);
-        }
-    }
-
-    while (!wl.empty())
-    {
-        const auto current = wl.front();
-        wl.pop();
-
-        context.must_in.erase(current);
-
-        const auto current_may_iter = context.may_in.find(current);
-        if (current_may_iter == context.may_in.end() || current_may_iter->second.is_top)
-        {
-            continue;
-        }
-
-        for (const auto& target : current_may_iter->second)
-        {
-            if (!is_reachable_state_target(target.id))
-            {
-                continue;
-            }
-
-            if (seen.insert(target.id).second)
-            {
-                wl.push(target.id);
-            }
-        }
-    }
 }
 
 // Make may information top for all reachable dereferenceable state cells.
@@ -295,8 +197,8 @@ void nuke_reachable_must(const objectId source, const MustTransferContextBundle&
 void nuke_reachable_may(const objectId source, const MayTransferContextBundle& context,
                         const bool unmodifiable_constants)
 {
-    std::unordered_set<objectId> seen;
-    std::queue<objectId>         wl;
+    std::set<objectId>   seen;
+    std::queue<objectId> wl;
 
     const auto source_may_iter = context.may_in.find(source);
     if (source_may_iter == context.may_in.end() || source_may_iter->second.is_top)
@@ -322,6 +224,7 @@ void nuke_reachable_may(const objectId source, const MayTransferContextBundle& c
         }
     }
 
+    // TODO: Improve precision with OUT_OF_LOCAL_SCOPE (and all the other reachables )
     while (!wl.empty())
     {
         const auto current_id = wl.front();

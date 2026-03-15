@@ -6,9 +6,9 @@ set(INCLUDE_DIR
 )
 
 set(SOURCE_FILES
+  ${CMAKE_CURRENT_SOURCE_DIR}/basic_block_may_state_store.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/defines.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/may_value.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/transfer_must.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transfer_may.cpp
 )
 
@@ -17,8 +17,8 @@ set(HEADER_FILES
   ${INCLUDE_DIR}/import.hpp
   ${INCLUDE_DIR}/nodes.hpp
 
+  ${INCLUDE_DIR}/basic_block_may_state_store.hpp
   ${INCLUDE_DIR}/may_value.hpp
-  ${INCLUDE_DIR}/transfer_must.hpp
   ${INCLUDE_DIR}/transfer_may.hpp
 )
 

@@ -137,19 +137,16 @@ using PointsToConstant   = MetaProduct<program::ConstantIR, metadata::points_to:
 
 using GlobalPointsToSet = ProductList<GlobalPointsToProgram, PointsToVariable, PointsToConstant>;
 using LocalPointsToSet  = ProductList<LocalPointsToFunction, PointsToBasicBlock>;
-using FullPointsToSet   = utils::set_union_unique_t<GlobalPointsToSet, LocalPointsToSet>;
+using PointsToSetAll    = utils::set_union_many_t<GlobalPointsToSet, LocalPointsToSet>;
 
 using AvailableCopyFunction =
         MetaProduct<program::FunctionIR, metadata::available_copy::FunctionMeta>;
 using AvailableCopyBasicBlock =
         MetaProduct<program::BasicBlockIR, metadata::available_copy::BasicBlockMeta>;
-using AvailableCopyInstruction =
-        MetaProduct<program::InstructionIR, metadata::available_copy::InstructionMeta>;
 using AvailableCopyVariable =
         MetaProduct<program::VariableIR, metadata::available_copy::VariableMeta>;
-
-using AvailableCopySet = ProductList<AvailableCopyFunction, AvailableCopyBasicBlock,
-                                     AvailableCopyInstruction, AvailableCopyVariable>;
+using AvailableCopyAll =
+        ProductList<AvailableCopyFunction, AvailableCopyBasicBlock, AvailableCopyVariable>;
 } // namespace products
 } // namespace optimizer::pipeline
 
