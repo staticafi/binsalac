@@ -10,16 +10,36 @@
 #include <optimizer/utils/sparse_map.hpp>
 #include <optimizer/utils/sparse_set.hpp>
 
+#include <optimizer/utils/common.hpp>
 #include <unordered_map>
 #include <utility/invariants.hpp>
 
 namespace optimizer::utils::points_to
 {
-// Pool of concrete objects
 using ObjectPool = std::unordered_map<objectId, Object>;
 
-// May state
+// Raw sparse points-to map.
+// Missing key == bottom for that particular cell.
 using MayState = SparseMap<objectId, MayValue>;
+
+// Solver / stored abstract state.
+// `poisoned == true` means: whole points-to state is invalidated.
+struct MayAnalysisState
+{
+    MayState may{};
+    bool     poisoned{false};
+
+    void clear() noexcept
+    {
+        may.clear();
+        poisoned = false;
+    }
+
+    bool operator==(const MayAnalysisState& other) const
+    {
+        return std::tie(poisoned, may) == std::tie(other.poisoned, other.may);
+    };
+};
 
 struct ProgramPoint
 {
@@ -32,7 +52,7 @@ struct MayTransferContextBundle
 {
     ProgramPoint                 pp;
     sala::Instruction::Opcode    opcode;
-    MayState&                    may_in;
+    MayAnalysisState&            state;
     const ObjectPool&            global_objects;
     const ObjectPool&            local_objects;
     const std::vector<objectId>& operands_id;
@@ -40,56 +60,57 @@ struct MayTransferContextBundle
     const objectId               last_local_id;
 };
 
-constexpr static inline bool is_abstract(objectId node)
-{
-    return node < 0;
-}
-
-static inline void nuke_may(const MayTransferContextBundle& context)
-{
-    for (auto& kvp_iter : context.may_in)
-    {
-        kvp_iter.second.make_top();
-    }
-}
-
+void dump_may_set(const MayState& may_in);
 bool is_constant_object(const ObjectPool& globals, const objectId id) noexcept;
 
 bool is_reachable_state_target(const objectId id) noexcept;
-
-// Reachability over the memory graph induced by may-state cells.
-//
-// Important:
-// - We only traverse nodes that can actually have state cells.
-// - Precision-loss flags are not graph nodes anymore and therefore are not traversed.
-// - Summary memory objects such as OUT_OF_LOCAL_SCOPE / OUT_OF_GLOBAL_SCOPE / HEAP / ALLOCA
-//   may still be traversed if can_have_state_cell(id) says yes.
 
 bool is_objectId_reachable(const MayTransferContextBundle& context, objectId source,
                            objectId    target,
                            std::size_t max_depth = std::numeric_limits<std::size_t>::max());
 
-void state_join_or_relaxed(MayState& A, const MayState& B);
+void state_join_or_relaxed(MayAnalysisState& A, const MayAnalysisState& B);
 
-// Strict may join used at CFG/function joins where
-// "present on one path, absent on another path" must explicitly lose precision.
-void state_join_or_strict(MayState& A, const MayState& B,
+void state_join_or_strict(MayAnalysisState& A, const MayAnalysisState& B,
                           objectId extension_node = grouped_objects::MERGE_UNKNOWN);
 
-void dump_may_set(const MayState& may_in);
+void dump_may_set(const MayAnalysisState& state);
 
 void dump_must_set(const MayState& must_in);
+void dump_must_set(const MayAnalysisState& state);
 
-// Make may information top for all reachable dereferenceable state cells.
-//
-// Important differences from the old version:
-// - we do not fabricate cells for non-dereferenceable nodes
-// - we do not traverse through non-state-cell nodes
-// - constants may be skipped if requested
-void nuke_reachable_may(objectId source, const MayTransferContextBundle& context,
-                        bool unmodifiable_constants);
+void handle_call_boundary(objectId source, const MayTransferContextBundle& context,
+                          bool unmodifiable_constants);
 
 std::size_t get_relevant_operands_count(const program::InstructionIR& instruction);
+
+constexpr static inline bool is_abstract(objectId node)
+{
+    return node < 0;
+}
+
+[[nodiscard]] inline bool is_poisoned(const MayAnalysisState& state) noexcept
+{
+    return state.poisoned;
+}
+
+inline void poison_may_state(MayAnalysisState& state) noexcept
+{
+    state.may.clear();
+    state.poisoned = true;
+}
+
+static inline void poison_may(const MayTransferContextBundle& context)
+{
+    std::cout << "POISINING MAY " << instruction_opcode_to_string(context.opcode) << " ";
+    for (size_t op = 0; op < context.operands_count; ++op)
+    {
+        std::cout << context.operands_id[op] << " ";
+    }
+    std::cout << "\n";
+    dump_may_set(context.state);
+    poison_may_state(context.state);
+}
 
 } // namespace optimizer::utils::points_to
 

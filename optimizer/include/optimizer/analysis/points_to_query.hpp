@@ -13,6 +13,7 @@ using Target   = utils::points_to::Target;
 
 struct PointsToResult
 {
+    bool                     poisoned{false};
     std::optional<Target>    must;
     utils::SparseSet<Target> may;
 };
@@ -38,14 +39,10 @@ class PointsToQueryFunction
   private:
     struct cache_t
     {
-        program::BasicBlockIR_raw  bb;
-        program::InstructionIR_raw instr;
-        utils::points_to::MayState may_in;
+        program::BasicBlockIR_raw          bb;
+        program::InstructionIR_raw         instr;
+        utils::points_to::MayAnalysisState state;
     };
-
-    using cach_state_t = std::pair<const program::InstructionIR*, utils::points_to::MayState>;
-
-    // using cache_t = std::pair<const program::BasicBlockIR*, cach_state_t>;
 
     PointsToResult handle_request(const program::InstructionIR_sptr& instruction,
                                   const program::VariableIR& x, bool before);
@@ -55,6 +52,10 @@ class PointsToQueryFunction
 
     [[nodiscard]] const metadata::points_to::ObjectPool*
     get_object_pool(const program::InstructionIR_sptr& instruction, const program::VariableIR& x);
+    void populate_cache_before(const program::InstructionIR_sptr& instruction);
+    void apply_transfer_to_state(const program::InstructionIR_sptr&  instruction,
+                                 utils::points_to::MayAnalysisState& state,
+                                 const std::size_t bb_index, const std::size_t instr_index);
 
   private:
     program::ProgramIR_csptr  program_keepalive_;
