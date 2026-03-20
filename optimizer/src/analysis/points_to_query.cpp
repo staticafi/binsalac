@@ -13,13 +13,12 @@
 
 namespace optimizer::analysis
 {
-namespace pt              = optimizer::utils::points_to;
-namespace grouped_objects = pt::grouped_objects;
 
 namespace
 {
-using MayState = pt::MayState;
-using MayValue = pt::MayValue;
+using MayState         = utils::MayState;
+using MayValue         = utils::MayValue;
+using MayAnalysisState = utils::MayAnalysisState;
 
 inline objectId get_variable_id(const program::VariableIR& variable)
 {
@@ -38,7 +37,7 @@ inline objectId get_operand_id(const program::InstructionIR_sptr& instruction,
 
     if (std::holds_alternative<program::FunctionIR_raw>(operand_raw))
     {
-        return grouped_objects::FUNCTION;
+        return utils::grouped_objects::FUNCTION;
     }
     else if (const auto variable_raw = std::get_if<program::VariableIR_raw>(&operand_raw))
     {
@@ -111,20 +110,43 @@ inline objectId compute_last_local_id(const metadata::points_to::ObjectPool& loc
     return result;
 }
 
+inline PointsToResult make_poisoned_result()
+{
+    PointsToResult result{};
+    result.poisoned = true;
+    result.must     = std::nullopt;
+    result.may.clear();
+    return result;
+}
+
 inline PointsToResult make_result_from_value(const MayValue* value)
 {
     PointsToResult result{};
 
     if (value == nullptr)
     {
-        result.must = std::nullopt;
+        result.poisoned = false;
+        result.must     = std::nullopt;
         result.may.clear();
         return result;
     }
 
-    result.must = value->must_fact();
-    result.may  = value->targets;
+    result.poisoned = false;
+    result.must     = value->must_fact();
+    result.may      = value->targets;
     return result;
+}
+
+inline PointsToResult make_result_from_state(const MayAnalysisState& state,
+                                             const objectId          queried_id)
+{
+    if (state.poisoned)
+    {
+        return make_poisoned_result();
+    }
+
+    const auto it = state.may.find(queried_id);
+    return make_result_from_value(it == state.may.end() ? nullptr : &it->second);
 }
 
 } // namespace
@@ -153,7 +175,7 @@ PointsToQueryFunction::PointsToQueryFunction(program::FunctionIR_csptr function)
 
     cache_.bb    = nullptr;
     cache_.instr = nullptr;
-    cache_.may_in.clear();
+    cache_.state.clear();
 }
 
 [[nodiscard]] const metadata::points_to::ObjectPool*
@@ -184,6 +206,87 @@ PointsToQueryFunction::get_object_pool(const program::InstructionIR_sptr& instru
     ASSUMPTION(false);
 }
 
+void PointsToQueryFunction::apply_transfer_to_state(const program::InstructionIR_sptr& instruction,
+                                                    MayAnalysisState&                  state,
+                                                    const std::size_t                  bb_index,
+                                                    const std::size_t                  instr_index)
+{
+    ASSUMPTION(instruction != nullptr);
+
+    if (state.poisoned)
+    {
+        return;
+    }
+
+    const auto            relevant_ops_count = utils::get_relevant_operands_count(*instruction);
+    std::vector<objectId> operands_id(relevant_ops_count);
+
+    for (std::size_t i = 0; i < relevant_ops_count; ++i)
+    {
+        operands_id[i] = get_operand_id(instruction, i);
+    }
+
+    utils::MayTransferContextBundle context{
+            .pp =
+                    {
+                            .function = 0,
+                            .bb       = bb_index,
+                            .instr    = instr_index,
+                    },
+            .opcode         = instruction->get_opcode(),
+            .state          = state,
+            .global_objects = *global_objects_,
+            .local_objects  = *local_objects_,
+            .operands_id    = operands_id,
+            .operands_count = relevant_ops_count,
+            .last_local_id  = last_local_id_,
+    };
+
+    transfer_may_(context);
+}
+
+void PointsToQueryFunction::populate_cache_before(const program::InstructionIR_sptr& instruction)
+{
+    ASSUMPTION(instruction != nullptr);
+
+    const auto bb_raw = instruction->get_basic_block_raw();
+    ASSUMPTION(bb_raw != nullptr);
+    ASSUMPTION(bb_raw->get_function_raw() == function_.get());
+
+    if (cache_.bb == bb_raw && cache_.instr == instruction.get())
+    {
+        return;
+    }
+
+    const auto* bb_meta = bb_raw->get_metadata().get_raw<metadata::points_to::BasicBlockMeta>();
+    ASSUMPTION(bb_meta != nullptr);
+    ASSUMPTION(function_meta_ != nullptr);
+    ASSUMPTION(function_meta_->bb_may_state_store != nullptr);
+
+    cache_.bb    = bb_raw;
+    cache_.instr = instruction.get();
+    cache_.state = function_meta_->bb_may_state_store->get(bb_meta->may_in_id);
+
+    const auto bb_index = get_basic_block_index(function_, bb_raw);
+
+    std::size_t current_instr_index = 0;
+    for (const auto& current_instruction : bb_raw->get_instructions())
+    {
+        if (current_instruction.get() == instruction.get())
+        {
+            break;
+        }
+
+        apply_transfer_to_state(current_instruction, cache_.state, bb_index, current_instr_index);
+        ++current_instr_index;
+
+        if (cache_.state.poisoned)
+        {
+            break;
+        }
+    }
+}
+
 PointsToResult
 PointsToQueryFunction::handle_cache_hit(const program::InstructionIR_sptr& instruction,
                                         const program::VariableIR& x, bool before)
@@ -199,43 +302,18 @@ PointsToQueryFunction::handle_cache_hit(const program::InstructionIR_sptr& instr
 
     if (before)
     {
-        const auto it = cache_.may_in.find(queried_id);
-        return make_result_from_value(it == cache_.may_in.end() ? nullptr : &it->second);
+        return make_result_from_state(cache_.state, queried_id);
     }
 
-    MayState after_state = cache_.may_in;
-
-    const auto bb_index    = get_basic_block_index(function_, instruction->get_basic_block_raw());
-    const auto instr_index = get_instruction_index(instruction);
-
-    const auto            relevant_ops_count = pt::get_relevant_operands_count(*instruction);
-    std::vector<objectId> operands_id(relevant_ops_count);
-
-    for (std::size_t i = 0; i < relevant_ops_count; ++i)
+    auto after_state = cache_.state;
+    if (!after_state.poisoned)
     {
-        operands_id[i] = get_operand_id(instruction, i);
+        const auto bb_index = get_basic_block_index(function_, instruction->get_basic_block_raw());
+        const auto instr_index = get_instruction_index(instruction);
+        apply_transfer_to_state(instruction, after_state, bb_index, instr_index);
     }
 
-    pt::MayTransferContextBundle context{
-            .pp =
-                    {
-                            .function = 0,
-                            .bb       = bb_index,
-                            .instr    = instr_index,
-                    },
-            .opcode         = instruction->get_opcode(),
-            .may_in         = after_state,
-            .global_objects = *global_objects_,
-            .local_objects  = *local_objects_,
-            .operands_id    = operands_id,
-            .operands_count = relevant_ops_count,
-            .last_local_id  = last_local_id_,
-    };
-
-    transfer_may_(context);
-
-    const auto it = after_state.find(queried_id);
-    return make_result_from_value(it == after_state.end() ? nullptr : &it->second);
+    return make_result_from_state(after_state, queried_id);
 }
 
 PointsToResult PointsToQueryFunction::handle_request(const program::InstructionIR_sptr& instruction,
@@ -247,61 +325,7 @@ PointsToResult PointsToQueryFunction::handle_request(const program::InstructionI
     ASSUMPTION(bb_raw != nullptr);
     ASSUMPTION(bb_raw->get_function_raw() == function_.get());
 
-    if (cache_.bb == bb_raw && cache_.instr == instruction.get())
-    {
-        return handle_cache_hit(instruction, x, before);
-    }
-
-    const auto* bb_meta = bb_raw->get_metadata().get_raw<metadata::points_to::BasicBlockMeta>();
-    ASSUMPTION(bb_meta != nullptr);
-
-    cache_.bb    = bb_raw;
-    cache_.instr = instruction.get();
-    ASSUMPTION(function_meta_ != nullptr);
-    ASSUMPTION(function_meta_->bb_may_state_store != nullptr);
-    cache_.may_in = function_meta_->bb_may_state_store->get(bb_meta->may_in_id);
-
-    const auto bb_index    = get_basic_block_index(function_, bb_raw);
-    const auto instr_index = get_instruction_index(instruction);
-
-    std::size_t current_instr_index = 0;
-    for (const auto& current_instruction : bb_raw->get_instructions())
-    {
-        if (current_instruction.get() == instruction.get())
-        {
-            break;
-        }
-
-        const auto relevant_ops_count = pt::get_relevant_operands_count(*current_instruction);
-        std::vector<objectId> operands_id(relevant_ops_count);
-
-        for (std::size_t i = 0; i < relevant_ops_count; ++i)
-        {
-            operands_id[i] = get_operand_id(current_instruction, i);
-        }
-
-        pt::MayTransferContextBundle context{
-                .pp =
-                        {
-                                .function = 0,
-                                .bb       = bb_index,
-                                .instr    = current_instr_index,
-                        },
-                .opcode         = current_instruction->get_opcode(),
-                .may_in         = cache_.may_in,
-                .global_objects = *global_objects_,
-                .local_objects  = *local_objects_,
-                .operands_id    = operands_id,
-                .operands_count = relevant_ops_count,
-                .last_local_id  = last_local_id_,
-        };
-
-        transfer_may_(context);
-        ++current_instr_index;
-    }
-
-    ASSUMPTION(current_instr_index == instr_index);
-
+    populate_cache_before(instruction);
     return handle_cache_hit(instruction, x, before);
 }
 
@@ -326,59 +350,10 @@ PointsToResult PointsToQueryFunction::before(const program::InstructionIR_sptr& 
     ASSUMPTION(bb_raw != nullptr);
     ASSUMPTION(bb_raw->get_function_raw() == function_.get());
 
-    if (!(cache_.bb == bb_raw && cache_.instr == instruction.get()))
-    {
-        const auto* bb_meta = bb_raw->get_metadata().get_raw<metadata::points_to::BasicBlockMeta>();
-        ASSUMPTION(bb_meta != nullptr);
-
-        cache_.bb    = bb_raw;
-        cache_.instr = instruction.get();
-        ASSUMPTION(function_meta_ != nullptr);
-        ASSUMPTION(function_meta_->bb_may_state_store != nullptr);
-        cache_.may_in = function_meta_->bb_may_state_store->get(bb_meta->may_in_id);
-
-        const auto bb_index = get_basic_block_index(function_, bb_raw);
-
-        std::size_t current_instr_index = 0;
-        for (const auto& current_instruction : bb_raw->get_instructions())
-        {
-            if (current_instruction.get() == instruction.get())
-            {
-                break;
-            }
-
-            const auto relevant_ops_count = pt::get_relevant_operands_count(*current_instruction);
-            std::vector<objectId> operands_id(relevant_ops_count);
-
-            for (std::size_t i = 0; i < relevant_ops_count; ++i)
-            {
-                operands_id[i] = get_operand_id(current_instruction, i);
-            }
-
-            pt::MayTransferContextBundle context{
-                    .pp =
-                            {
-                                    .function = 0,
-                                    .bb       = bb_index,
-                                    .instr    = current_instr_index,
-                            },
-                    .opcode         = current_instruction->get_opcode(),
-                    .may_in         = cache_.may_in,
-                    .global_objects = *global_objects_,
-                    .local_objects  = *local_objects_,
-                    .operands_id    = operands_id,
-                    .operands_count = relevant_ops_count,
-                    .last_local_id  = last_local_id_,
-            };
-
-            transfer_may_(context);
-            ++current_instr_index;
-        }
-    }
+    populate_cache_before(instruction);
 
     const auto queried_id = get_constant_id(x);
-    const auto it         = cache_.may_in.find(queried_id);
-    return make_result_from_value(it == cache_.may_in.end() ? nullptr : &it->second);
+    return make_result_from_state(cache_.state, queried_id);
 }
 
 PointsToResult PointsToQueryFunction::after(const program::InstructionIR_sptr& instruction,
@@ -390,45 +365,18 @@ PointsToResult PointsToQueryFunction::after(const program::InstructionIR_sptr& i
     ASSUMPTION(bb_raw != nullptr);
     ASSUMPTION(bb_raw->get_function_raw() == function_.get());
 
-    if (!(cache_.bb == bb_raw && cache_.instr == instruction.get()))
+    populate_cache_before(instruction);
+
+    auto after_state = cache_.state;
+    if (!after_state.poisoned)
     {
-        (void)before(instruction, x);
+        const auto bb_index    = get_basic_block_index(function_, bb_raw);
+        const auto instr_index = get_instruction_index(instruction);
+        apply_transfer_to_state(instruction, after_state, bb_index, instr_index);
     }
-
-    MayState after_state = cache_.may_in;
-
-    const auto bb_index    = get_basic_block_index(function_, bb_raw);
-    const auto instr_index = get_instruction_index(instruction);
-
-    const auto            relevant_ops_count = pt::get_relevant_operands_count(*instruction);
-    std::vector<objectId> operands_id(relevant_ops_count);
-
-    for (std::size_t i = 0; i < relevant_ops_count; ++i)
-    {
-        operands_id[i] = get_operand_id(instruction, i);
-    }
-
-    pt::MayTransferContextBundle context{
-            .pp =
-                    {
-                            .function = 0,
-                            .bb       = bb_index,
-                            .instr    = instr_index,
-                    },
-            .opcode         = instruction->get_opcode(),
-            .may_in         = after_state,
-            .global_objects = *global_objects_,
-            .local_objects  = *local_objects_,
-            .operands_id    = operands_id,
-            .operands_count = relevant_ops_count,
-            .last_local_id  = last_local_id_,
-    };
-
-    transfer_may_(context);
 
     const auto queried_id = get_constant_id(x);
-    const auto it         = after_state.find(queried_id);
-    return make_result_from_value(it == after_state.end() ? nullptr : &it->second);
+    return make_result_from_state(after_state, queried_id);
 }
 
 std::optional<program::OperandIR_sptr> PointsToQueryFunction::get_object(objectId id) const

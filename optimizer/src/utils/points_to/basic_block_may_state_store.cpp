@@ -8,13 +8,23 @@ namespace optimizer::utils::points_to
 {
 namespace
 {
-inline std::size_t hash_may_state(const MayState& state) noexcept
+inline std::size_t hash_may_map(const MayState& state) noexcept
 {
     std::size_t seed = std::hash<std::size_t>{}(state.size());
     for (const auto& [object_id, may_value] : state)
     {
         hash_combine(seed, std::hash<objectId>{}(object_id));
         hash_combine(seed, std::hash<MayValue>{}(may_value));
+    }
+    return seed;
+}
+
+inline std::size_t hash_may_state(const MayAnalysisState& state) noexcept
+{
+    std::size_t seed = std::hash<bool>{}(state.poisoned);
+    if (!state.poisoned)
+    {
+        hash_combine(seed, hash_may_map(state.may));
     }
     return seed;
 }
@@ -31,7 +41,7 @@ StateId BasicBlockMayStateStore::empty_id() const noexcept
     return 0;
 }
 
-StateId BasicBlockMayStateStore::intern(const MayState& state)
+StateId BasicBlockMayStateStore::intern(const MayAnalysisState& state)
 {
     const auto hash   = hash_may_state(state);
     auto&      bucket = buckets_[hash];
@@ -50,7 +60,7 @@ StateId BasicBlockMayStateStore::intern(const MayState& state)
     return new_id;
 }
 
-StateId BasicBlockMayStateStore::intern(MayState&& state)
+StateId BasicBlockMayStateStore::intern(MayAnalysisState&& state)
 {
     const auto hash   = hash_may_state(state);
     auto&      bucket = buckets_[hash];
@@ -69,7 +79,7 @@ StateId BasicBlockMayStateStore::intern(MayState&& state)
     return new_id;
 }
 
-const MayState& BasicBlockMayStateStore::get(const StateId id) const
+const MayAnalysisState& BasicBlockMayStateStore::get(const StateId id) const
 {
     if (id >= states_.size())
     {
@@ -79,7 +89,7 @@ const MayState& BasicBlockMayStateStore::get(const StateId id) const
     return states_[id];
 }
 
-bool BasicBlockMayStateStore::equals(const StateId id, const MayState& state) const
+bool BasicBlockMayStateStore::equals(const StateId id, const MayAnalysisState& state) const
 {
     return get(id) == state;
 }
@@ -134,22 +144,23 @@ StateId BasicBlockMayStateSlots::id(const std::size_t bb_index) const
     return ids_.at(bb_index);
 }
 
-const MayState& BasicBlockMayStateSlots::get(const std::size_t bb_index) const
+const MayAnalysisState& BasicBlockMayStateSlots::get(const std::size_t bb_index) const
 {
     return store_->get(ids_.at(bb_index));
 }
 
-bool BasicBlockMayStateSlots::equals(const std::size_t bb_index, const MayState& state) const
+bool BasicBlockMayStateSlots::equals(const std::size_t       bb_index,
+                                     const MayAnalysisState& state) const
 {
     return has(bb_index) && store_->equals(ids_.at(bb_index), state);
 }
 
-bool BasicBlockMayStateSlots::set(const std::size_t bb_index, const MayState& state)
+bool BasicBlockMayStateSlots::set(const std::size_t bb_index, const MayAnalysisState& state)
 {
     return assign_id_(bb_index, store_->intern(state));
 }
 
-bool BasicBlockMayStateSlots::set(const std::size_t bb_index, MayState&& state)
+bool BasicBlockMayStateSlots::set(const std::size_t bb_index, MayAnalysisState&& state)
 {
     return assign_id_(bb_index, store_->intern(std::move(state)));
 }

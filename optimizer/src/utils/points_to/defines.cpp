@@ -1,3 +1,4 @@
+#include "optimizer/utils/points_to/nodes.hpp"
 #include <optimizer/utils/points_to/defines.hpp>
 
 #include <iostream>
@@ -18,16 +19,14 @@ bool is_reachable_state_target(const objectId id) noexcept
     return can_have_state_cell(id);
 }
 
-// Reachability over the memory graph induced by may-state cells.
-//
-// Important:
-// - We only traverse nodes that can actually have state cells.
-// - Precision-loss flags are not graph nodes anymore and therefore are not traversed.
-// - Summary memory objects such as OUT_OF_LOCAL_SCOPE / OUT_OF_GLOBAL_SCOPE / HEAP / ALLOCA
-//   may still be traversed if can_have_state_cell(id) says yes.
 bool is_objectId_reachable(const MayTransferContextBundle& context, objectId source,
                            const objectId target, std::size_t const max_depth)
 {
+    if (context.state.poisoned)
+    {
+        return true;
+    }
+
     if (source == target)
     {
         return true;
@@ -49,8 +48,8 @@ bool is_objectId_reachable(const MayTransferContextBundle& context, objectId sou
             continue;
         }
 
-        const auto it = context.may_in.find(current);
-        if (it == context.may_in.end() || it->second.is_top)
+        const auto it = context.state.may.find(current);
+        if (it == context.state.may.end() || it->second.is_top)
         {
             continue;
         }
@@ -79,14 +78,20 @@ bool is_objectId_reachable(const MayTransferContextBundle& context, objectId sou
     return false;
 }
 
-void state_join_or_relaxed(MayState& A, const MayState& B)
+void state_join_or_relaxed(MayAnalysisState& A, const MayAnalysisState& B)
 {
-    for (const auto& [source, transfer] : B)
+    if (A.poisoned || B.poisoned)
     {
-        auto A_source_iter = A.find(source);
-        if (A_source_iter == A.end())
+        poison_may_state(A);
+        return;
+    }
+
+    for (const auto& [source, transfer] : B.may)
+    {
+        auto A_source_iter = A.may.find(source);
+        if (A_source_iter == A.may.end())
         {
-            A.emplace(source, transfer);
+            A.may.emplace(source, transfer);
         }
         else
         {
@@ -95,22 +100,23 @@ void state_join_or_relaxed(MayState& A, const MayState& B)
     }
 }
 
-// Strict may join used at CFG/function joins where
-// "present on one path, absent on another path" must explicitly lose precision.
-//
-// Old behavior injected a fake target node such as MERGE_UNKNOWN.
-// New behavior records that loss in MayValue loss flags.
-void state_join_or_strict(MayState& A, const MayState& B, const objectId extension_node)
+void state_join_or_strict(MayAnalysisState& A, const MayAnalysisState& B,
+                          const objectId extension_node)
 {
+    if (A.poisoned || B.poisoned)
+    {
+        poison_may_state(A);
+        return;
+    }
+
     const bool use_call_order_discrepancy =
             extension_node == grouped_objects::CALL_ORDER_DISCREPANCY;
 
     // Keys present in A but absent in B lose precision.
-    for (auto& [target, pointees] : A)
+    for (auto& [target, pointees] : A.may)
     {
-        if (!B.contains(target) && !pointees.is_top)
+        if (!B.may.contains(target) && !pointees.is_top)
         {
-            pointees.make_top();
             if (use_call_order_discrepancy)
             {
                 pointees.add_call_order_discrepancy();
@@ -122,22 +128,18 @@ void state_join_or_strict(MayState& A, const MayState& B, const objectId extensi
         }
     }
 
-    // Keys present in B:
-    // - if absent in A, seed from B and mark precision loss due to absence on A side
-    // - if present in both, just join the MayValues
-    for (const auto& [source, transfer] : B)
+    for (const auto& [source, transfer] : B.may)
     {
-        auto source_iter = A.find(source);
-        if (source_iter == A.end())
+        auto source_iter = A.may.find(source);
+        if (source_iter == A.may.end())
         {
             if (transfer.is_top)
             {
-                A.emplace(source, MayValue::top());
+                A.may.emplace(source, MayValue::top());
             }
             else
             {
                 MayValue seeded = transfer;
-                seeded.make_top();
                 if (use_call_order_discrepancy)
                 {
                     seeded.add_call_order_discrepancy();
@@ -146,7 +148,7 @@ void state_join_or_strict(MayState& A, const MayState& B, const objectId extensi
                 {
                     seeded.add_merge_unknown();
                 }
-                A.insert_or_assign(source, std::move(seeded));
+                A.may.insert_or_assign(source, std::move(seeded));
             }
         }
         else
@@ -166,6 +168,20 @@ void dump_may_set(const MayState& may_in)
     }
     std::cout << "<<\n";
     std::cout << "^^^^^^^^^^^^^ END ^^^^^^^^^^^^^ \n";
+}
+
+void dump_may_set(const MayAnalysisState& state)
+{
+    if (state.poisoned)
+    {
+        std::cout << "========== DUMPING MAY ===========" << "\n";
+        std::cout << "POISONED\n";
+        std::cout << "<<\n";
+        std::cout << "^^^^^^^^^^^^^ END ^^^^^^^^^^^^^ \n";
+        return;
+    }
+
+    dump_may_set(state.may);
 }
 
 void dump_must_set(const MayState& may_in)
@@ -188,24 +204,96 @@ void dump_must_set(const MayState& may_in)
     std::cout << "^^^^^^^^^^^^^ END ^^^^^^^^^^^^^ \n";
 }
 
-// Make may information top for all reachable dereferenceable state cells.
-//
-// Important differences from the old version:
-// - we do not fabricate cells for non-dereferenceable nodes
-// - we do not traverse through non-state-cell nodes
-// - constants may be skipped if requested
-void nuke_reachable_may(const objectId source, const MayTransferContextBundle& context,
-                        const bool unmodifiable_constants)
+void dump_must_set(const MayAnalysisState& state)
 {
-    std::set<objectId>   seen;
-    std::queue<objectId> wl;
+    if (state.poisoned)
+    {
+        std::cout << "========== DUMPING MAY =========== \n";
+        std::cout << "POISONED\n";
+        std::cout << "<<\n";
+        std::cout << "^^^^^^^^^^^^^ END ^^^^^^^^^^^^^ \n";
+        return;
+    }
 
-    const auto source_may_iter = context.may_in.find(source);
-    if (source_may_iter == context.may_in.end() || source_may_iter->second.is_top)
+    dump_must_set(state.may);
+}
+void handle_call_boundary(const objectId escapee, const MayTransferContextBundle& context,
+                          const bool unmodifiable_constants)
+{
+    if (context.state.poisoned)
     {
         return;
     }
 
+    const auto escapee_may_iter = context.state.may.find(escapee);
+    if (escapee_may_iter == context.state.may.end())
+    {
+        return;
+    }
+
+    if (escapee_may_iter->second.is_top)
+    {
+        return;
+    }
+
+    utils::SparseSet<objectId> reachable;
+    utils::SparseSet<objectId> seen;
+    std::queue<objectId>       wl;
+
+    // first indirection (we cannot modify values of these)
+    for (const auto& target : escapee_may_iter->second)
+    {
+        if (!is_reachable_state_target(target.id))
+        {
+            continue;
+        }
+
+        if (unmodifiable_constants && is_constant_object(context.global_objects, target.id))
+        {
+            continue;
+        }
+
+        if (seen.insert(target.id).second)
+        {
+            wl.push(target.id);
+        }
+    }
+
+    while (wl.empty())
+    {
+        const auto reachable_current = wl.front();
+        wl.pop();
+
+        if (is_reachable_state_target(reachable_current))
+        {
+            reachable.insert(reachable_current);
+        }
+    }
+}
+
+void handle_call_boundary_s(const objectId source, const MayTransferContextBundle& context,
+                            const bool unmodifiable_constants)
+{
+    if (context.state.poisoned)
+    {
+        return;
+    }
+
+    const auto source_may_iter = context.state.may.find(source);
+    if (source_may_iter == context.state.may.end())
+    {
+        return;
+    }
+
+    if (source_may_iter->second.is_top)
+    {
+        return;
+    }
+
+    std::set<objectId>   seen;
+    std::queue<objectId> wl;
+
+    // first indirection
     for (const auto& target : source_may_iter->second)
     {
         if (!is_reachable_state_target(target.id))
@@ -230,10 +318,12 @@ void nuke_reachable_may(const objectId source, const MayTransferContextBundle& c
         const auto current_id = wl.front();
         wl.pop();
 
-        auto current_may_iter = context.may_in.find(current_id);
-        if (current_may_iter != context.may_in.end() && !current_may_iter->second.is_top)
+        auto current_may_iter = context.state.may.find(current_id);
+
+        if (current_may_iter != context.state.may.end() && !current_may_iter->second.is_top)
         {
             const auto current_copy = current_may_iter->second;
+
             for (const auto& target : current_copy)
             {
                 if (!is_reachable_state_target(target.id))
@@ -252,9 +342,11 @@ void nuke_reachable_may(const objectId source, const MayTransferContextBundle& c
                 }
             }
 
-            current_may_iter->second.make_top();
+            // TODO : set to
+            current_may_iter->second.insert(
+                    Target{.id = grouped_objects::OUT_OF_LOCAL_SCOPE, .offset_flag = false});
         }
-        else if (current_may_iter != context.may_in.end())
+        else if (current_may_iter != context.state.may.end())
         {
             current_may_iter->second.make_top();
         }

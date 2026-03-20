@@ -55,7 +55,8 @@ bool MayValue::is_singleton_dereferenceable_target() const noexcept
 
 bool MayValue::is_must_fact() const noexcept
 {
-    return is_singleton_precise_target() && is_concrete_object(targets.begin()->id);
+    return is_singleton_precise_target() && is_concrete_object(targets.begin()->id) &&
+           !(targets.begin()->offset_flag);
 }
 
 std::optional<Target> MayValue::singleton_target() const noexcept

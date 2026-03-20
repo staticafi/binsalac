@@ -19,11 +19,11 @@ class BasicBlockMayStateStore
 
     [[nodiscard]] StateId empty_id() const noexcept;
 
-    [[nodiscard]] StateId intern(const MayState& state);
-    [[nodiscard]] StateId intern(MayState&& state);
+    [[nodiscard]] StateId intern(const MayAnalysisState& state);
+    [[nodiscard]] StateId intern(MayAnalysisState&& state);
 
-    [[nodiscard]] const MayState& get(StateId id) const;
-    [[nodiscard]] bool            equals(StateId id, const MayState& state) const;
+    [[nodiscard]] const MayAnalysisState& get(StateId id) const;
+    [[nodiscard]] bool                    equals(StateId id, const MayAnalysisState& state) const;
 
     [[nodiscard]] std::size_t unique_state_count() const noexcept;
 
@@ -31,7 +31,7 @@ class BasicBlockMayStateStore
     [[nodiscard]] StateId checked_next_id_() const;
 
   private:
-    std::vector<MayState>                                 states_{};
+    std::vector<MayAnalysisState>                         states_{};
     std::unordered_map<std::size_t, std::vector<StateId>> buckets_{};
 };
 
@@ -43,14 +43,14 @@ class BasicBlockMayStateSlots
 
     void reset(std::size_t n);
 
-    [[nodiscard]] std::size_t     size() const noexcept;
-    [[nodiscard]] bool            has(std::size_t bb_index) const;
-    [[nodiscard]] StateId         id(std::size_t bb_index) const;
-    [[nodiscard]] const MayState& get(std::size_t bb_index) const;
-    [[nodiscard]] bool            equals(std::size_t bb_index, const MayState& state) const;
+    [[nodiscard]] std::size_t             size() const noexcept;
+    [[nodiscard]] bool                    has(std::size_t bb_index) const;
+    [[nodiscard]] StateId                 id(std::size_t bb_index) const;
+    [[nodiscard]] const MayAnalysisState& get(std::size_t bb_index) const;
+    [[nodiscard]] bool equals(std::size_t bb_index, const MayAnalysisState& state) const;
 
-    bool set(std::size_t bb_index, const MayState& state);
-    bool set(std::size_t bb_index, MayState&& state);
+    bool set(std::size_t bb_index, const MayAnalysisState& state);
+    bool set(std::size_t bb_index, MayAnalysisState&& state);
 
     [[nodiscard]] std::shared_ptr<BasicBlockMayStateStore> store() const noexcept;
 

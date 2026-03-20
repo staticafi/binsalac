@@ -15,6 +15,7 @@
 
 namespace optimizer::passes
 {
+using utils::MayAnalysisState;
 using utils::MayState;
 using utils::Object;
 using utils::objectId;
@@ -23,7 +24,6 @@ struct GlobalPointsToAnalysis::Impl
 {
     Impl(program::ProgramIR_sptr sala_ir)
         : sala_ir_(std::move(sala_ir)), static_init_{sala_ir_->get_static_initializer_func()}
-
     {
         ASSUMPTION(sala_ir_ != nullptr);
         ASSUMPTION(static_init_ != nullptr);
@@ -38,7 +38,7 @@ struct GlobalPointsToAnalysis::Impl
         init_states();
         solve_static_intializer();
         materialize();
-    };
+    }
 
     void init_object_data()
     {
@@ -52,6 +52,7 @@ struct GlobalPointsToAnalysis::Impl
             {
                 target_mapping.emplace(id, Object{id, region});
                 operand_to_id_.emplace(variable.get(), id);
+
                 auto points_to_meta = std::make_unique<metadata::points_to::VariableMeta>();
                 points_to_meta->id  = id++;
                 variable->get_metadata().set(std::move(points_to_meta));
@@ -62,24 +63,26 @@ struct GlobalPointsToAnalysis::Impl
         {
             global_objects_.emplace(id, Object{id, utils::RegionTag::Constant});
             operand_to_id_.emplace(constant.get(), id);
+
             auto points_to_meta = std::make_unique<metadata::points_to::ConstantMeta>();
             points_to_meta->id  = id++;
             constant->get_metadata().set(std::move(points_to_meta));
         }
+
         assign_object_ids_variables(sala_ir_->get_static_vars(), global_objects_,
                                     utils::RegionTag::Static);
         assign_object_ids_variables(static_init_->get_parameters(), local_objects_,
                                     utils::RegionTag::Parameter);
         assign_object_ids_variables(static_init_->get_local_variables(), local_objects_,
                                     utils::RegionTag::Local);
-        // NOTE: look into what if no ids were assigned ??
+
+        ASSUMPTION(id > 0);
         last_local_id_ = id - 1;
         NB_            = static_init_->get_basic_blocks().size();
     }
 
     void build_flattened_cfg()
     {
-        // blocks_ + index_of_
         blocks_.clear();
         blocks_.reserve(NB_);
         for (const auto& bb : static_init_->get_basic_blocks())
@@ -94,7 +97,6 @@ struct GlobalPointsToAnalysis::Impl
             index_of_[blocks_[i]] = i;
         }
 
-        // preds_
         preds_.assign(NB_, {});
         for (std::size_t i = 0; i < NB_; ++i)
         {
@@ -102,16 +104,17 @@ struct GlobalPointsToAnalysis::Impl
             {
                 auto sp = wp.lock();
                 ASSUMPTION(sp != nullptr);
-                auto it = index_of_.find(sp);
+
+                const auto it = index_of_.find(sp);
                 ASSUMPTION(it != index_of_.end());
                 preds_[i].push_back(it->second);
             }
         }
 
-        // entry_
         entry_        = 0;
         const auto eb = static_init_->get_entry_basic_block();
         ASSUMPTION(eb != nullptr);
+
         const auto it = index_of_.find(eb);
         ASSUMPTION(it != index_of_.end());
         entry_ = it->second;
@@ -120,15 +123,12 @@ struct GlobalPointsToAnalysis::Impl
     void init_states()
     {
         out_may_.reset(NB_);
-
         in_may_scratch_.clear();
-
         first_visit_.assign(NB_, true);
     }
 
     void solve_static_intializer()
     {
-        // std::cout << "SOLVING STATIC" << std::endl;
         if (NB_ == 0)
         {
             return;
@@ -136,6 +136,7 @@ struct GlobalPointsToAnalysis::Impl
 
         std::queue<std::size_t> wl;
         std::vector<char>       in_wl(NB_, 0);
+
         wl.push(entry_);
         in_wl[entry_] = 1;
 
@@ -146,9 +147,11 @@ struct GlobalPointsToAnalysis::Impl
             in_wl[b] = 0;
 
             auto& may        = in_may_scratch_;
-            auto  first_pred = false;
+            bool  first_pred = false;
 
-            for (auto p : preds_[b])
+            may.clear();
+
+            for (const auto p : preds_[b])
             {
                 if (first_visit_[p])
                 {
@@ -171,39 +174,47 @@ struct GlobalPointsToAnalysis::Impl
                 may.clear();
             }
 
-            // apply transfer functions modifying may/must-IN to OUT inplace
+            std::size_t instruction_id = 0;
             for (const auto& instruction : blocks_[b]->get_instructions())
             {
-                const auto relevant_ops_size = fill_operands_id(instruction);
+                const auto relevant_ops_count = fill_operands_id(instruction);
+                ASSUMPTION(operands_id_scratch_.size() >= relevant_ops_count);
 
-                // One state needs to be copied -> the modification is done in-place
-                // we choose the must state since it contains less data
                 utils::MayTransferContextBundle may_transfer_context{
+                        .pp             = {.function = 0, .bb = b, .instr = instruction_id},
                         .opcode         = instruction->get_opcode(),
-                        .may_in         = may,
+                        .state          = may,
                         .global_objects = global_objects_,
                         .local_objects  = local_objects_,
                         .operands_id    = operands_id_scratch_,
-                        .operands_count = relevant_ops_size,
+                        .operands_count = relevant_ops_count,
                         .last_local_id  = last_local_id_,
                 };
 
-                // WARNING: order of calls is important since we modify the states in-place
                 utils::apply_transfer_may(may_transfer_context);
+                ++instruction_id;
+
+                if (may.poisoned)
+                {
+                    break;
+                }
             }
 
+            const bool changed = first_visit_[b] || !out_may_.equals(b, may);
+
             first_visit_[b] = false;
-            if (out_may_.get(b) != may)
+            if (changed)
             {
-                (void)out_may_.set(b, may);
+                out_may_.set(b, may);
                 may.clear();
 
                 for (const auto& ws : blocks_[b]->get_successors())
                 {
                     if (auto s = ws.lock())
                     {
-                        auto it = index_of_.find(s);
+                        const auto it = index_of_.find(s);
                         ASSUMPTION(it != index_of_.end());
+
                         if (!in_wl[it->second])
                         {
                             wl.push(it->second);
@@ -212,13 +223,11 @@ struct GlobalPointsToAnalysis::Impl
                     }
                 }
             }
-        };
+        }
     }
 
     void materialize()
     {
-        // std::cout << "MATERIALIZING STATIC" << std::endl;
-
         if (NB_ == 0)
         {
             return;
@@ -227,28 +236,41 @@ struct GlobalPointsToAnalysis::Impl
         auto program_points_to_meta = std::make_unique<metadata::points_to::ProgramMeta>();
 
         bool first_end_found = false;
+
         for (std::size_t b = 0; b < NB_; ++b)
         {
-            // IN from final OUTs of preds
-            MayState in_may{};
-            for (auto p : preds_[b])
+            MayAnalysisState in_may{};
+
+            for (const auto p : preds_[b])
             {
-                utils::state_join_or_strict(in_may, out_may_.get(p));
+                if (first_visit_[p])
+                {
+                    continue;
+                }
+
+                if (!in_may.poisoned && !out_may_.get(p).poisoned && in_may.may.empty())
+                {
+                    in_may = out_may_.get(p);
+                }
+                else
+                {
+                    utils::state_join_or_strict(in_may, out_may_.get(p));
+                }
             }
 
             auto bb_points_to_meta       = std::make_unique<metadata::points_to::BasicBlockMeta>();
             bb_points_to_meta->may_in_id = out_may_.store()->intern(in_may);
             blocks_[b]->get_metadata().set(std::move(bb_points_to_meta));
 
-            // Walk once to get out states
+            std::size_t instruction_id = 0;
             for (const auto& instruction : blocks_[b]->get_instructions())
             {
-                // Advance for next instruction
                 const auto relevant_ops_size = fill_operands_id(instruction);
 
                 utils::MayTransferContextBundle may_transfer_context{
+                        .pp             = {.function = 0, .bb = b, .instr = instruction_id},
                         .opcode         = instruction->get_opcode(),
-                        .may_in         = in_may,
+                        .state          = in_may,
                         .global_objects = global_objects_,
                         .local_objects  = local_objects_,
                         .operands_id    = operands_id_scratch_,
@@ -256,11 +278,15 @@ struct GlobalPointsToAnalysis::Impl
                         .last_local_id  = last_local_id_,
                 };
 
-                // WARNING: order of calls is important since we modify the states in-place
                 utils::apply_transfer_may(may_transfer_context);
+                ++instruction_id;
+
+                if (in_may.poisoned)
+                {
+                    break;
+                }
             }
 
-            // join out states of initializer end
             if (blocks_[b]->get_successors().empty())
             {
                 if (first_end_found)
@@ -274,13 +300,12 @@ struct GlobalPointsToAnalysis::Impl
                 }
             }
         }
-        // set static initializer metadata
+
         auto function_meta                = std::make_unique<metadata::points_to::FunctionMeta>();
         function_meta->local_objects      = std::move(local_objects_);
         function_meta->bb_may_state_store = out_may_.store();
         static_init_->get_metadata().set(std::move(function_meta));
 
-        // set program metadata
         program_points_to_meta->global_objects = std::move(global_objects_);
         program_points_to_meta->transfer_may_  = utils::apply_transfer_may;
         sala_ir_->get_metadata().set(std::move(program_points_to_meta));
@@ -289,39 +314,40 @@ struct GlobalPointsToAnalysis::Impl
     inline std::size_t fill_operands_id(const program::InstructionIR_sptr& instruction)
     {
         const auto relevant_ops_count = utils::get_relevant_operands_count(*instruction);
-        if (relevant_ops_count >= operands_id_scratch_.size())
+        operands_id_scratch_.clear();
+        if (relevant_ops_count > operands_id_scratch_.size())
         {
-            operands_id_scratch_.resize(relevant_ops_count);
+            operands_id_scratch_.reserve(relevant_ops_count);
         }
+
         for (std::size_t i = 0; i < relevant_ops_count; ++i)
         {
-            operands_id_scratch_[i] = get_operand_id(instruction, i);
+            operands_id_scratch_.push_back(get_operand_id(instruction, i));
         }
+
         return relevant_ops_count;
     }
 
     inline objectId get_operand_id(const program::InstructionIR_sptr& instruction,
                                    const std::size_t                  position)
     {
-
         const auto& operand = instruction->get_operands().at(position);
+
         if (std::holds_alternative<program::FunctionIR_raw>(operand))
         {
             return utils::grouped_objects::FUNCTION;
         }
-        else
-        {
-            const auto operand_id_iter = operand_to_id_.find(operand);
-            ASSUMPTION(operand_id_iter != operand_to_id_.end());
-            return operand_id_iter->second;
-        }
+
+        const auto operand_id_iter = operand_to_id_.find(operand);
+        ASSUMPTION(operand_id_iter != operand_to_id_.end());
+        return operand_id_iter->second;
     }
 
   private:
     program::ProgramIR_sptr  sala_ir_;
     program::FunctionIR_sptr static_init_;
 
-    MayState in_may_scratch_;
+    MayAnalysisState in_may_scratch_;
 
     utils::ObjectPool global_objects_;
     utils::ObjectPool local_objects_;
@@ -329,11 +355,9 @@ struct GlobalPointsToAnalysis::Impl
     std::unordered_map<program::OperandIR_raw, objectId> operand_to_id_{};
 
     std::vector<objectId> operands_id_scratch_;
-    objectId              last_local_id_;
+    objectId              last_local_id_{0};
 
-    // std::vector<MayState> out_may_;
     utils::BasicBlockMayStateSlots out_may_;
-    bool                           accessed_undefined_ = false;
 
     std::size_t N_{0}, NB_{0};
     std::size_t entry_{0};
