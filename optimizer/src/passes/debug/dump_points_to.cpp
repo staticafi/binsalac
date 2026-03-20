@@ -28,6 +28,50 @@ namespace
 static constexpr std::string_view ERROR = "ERROR";
 
 constexpr int OFFSET_MULT = 2;
+
+void dump_may_in(std::ostream& out, const utils::MayAnalysisState& state, int offset)
+{
+    out << utils::get_offset(offset) << " >>MAY IN: ";
+
+    if (state.poisoned)
+    {
+        out << "POISONED";
+    }
+    else
+    {
+        for (const auto& kvp : state.may)
+        {
+            out << kvp.first << " = " << kvp.second;
+            out << "; ";
+        }
+    }
+
+    out << "<<\n";
+}
+
+void dump_must_in(std::ostream& out, const utils::MayAnalysisState& state, int offset)
+{
+    out << utils::get_offset(offset) << " >>MUST IN: ";
+
+    if (state.poisoned)
+    {
+        out << "POISONED";
+    }
+    else
+    {
+        for (const auto& kvp : state.may)
+        {
+            const auto must_fact = kvp.second.must_fact();
+            if (must_fact.has_value())
+            {
+                out << kvp.first << " -> " << must_fact.value() << "; ";
+            }
+        }
+    }
+
+    out << "<<\n";
+}
+
 } // namespace
 
 struct DumpPointsTo::Impl
@@ -83,7 +127,9 @@ struct DumpPointsTo::Impl
         {
             out << "__extern__ ";
         }
+
         out << utils::get_function_name(function) << ": \n";
+
         out << utils::get_offset(offset) << "__params__: \n";
         out << utils::get_offset(offset) << "(\n";
         offset += OFFSET_MULT;
@@ -139,11 +185,10 @@ struct DumpPointsTo::Impl
     {
         if (basic_block == basic_block->get_function()->get_entry_basic_block())
         {
-            out << utils::get_offset(offset) << "__entry__"
-                << "\n";
+            out << utils::get_offset(offset) << "__entry__\n";
         }
 
-        out << utils::get_offset(offset) << (bb_id_map_[basic_block]) << ":\n";
+        out << utils::get_offset(offset) << bb_id_map_[basic_block] << ":\n";
 
         if (!basic_block->get_metadata().has<metadata::points_to::BasicBlockMeta>())
         {
@@ -154,37 +199,24 @@ struct DumpPointsTo::Impl
             const auto& points_to_meta =
                     basic_block->get_metadata().get<metadata::points_to::BasicBlockMeta>();
 
-            const auto& may_in =
+            const auto& state =
                     function_points_to_meta.bb_may_state_store->get(points_to_meta.may_in_id);
-            out << utils::get_offset(offset) << " >>MAY IN: ";
-            for (const auto& kvp : may_in)
-            {
-                out << kvp.first << " = " << kvp.second;
-                out << "; ";
-            }
-            out << "<<\n";
 
-            out << utils::get_offset(offset) << " >>MUST IN: ";
-            for (const auto& kvp : may_in)
-            {
-                const auto must_fact = kvp.second.must_fact();
-                if (must_fact.has_value())
-                {
-                    out << kvp.first << " -> " << must_fact.value() << "; ";
-                }
-            }
-            out << "<<\n";
+            dump_may_in(out, state, offset);
+            dump_must_in(out, state, offset);
         }
 
         out << utils::get_offset(offset) << "{\n";
         serialize_instructions(out, basic_block->get_instructions(), offset + OFFSET_MULT);
         out << utils::get_offset(offset) << "}\n";
+
         out << utils::get_offset(offset) << "|_succ__:";
         for (const auto& succ : basic_block->get_successors())
         {
             out << utils::get_offset(1) << bb_id_map_[succ.lock()];
         }
         out << "\n";
+
         out << utils::get_offset(offset) << "|_pred__:";
         for (const auto& pred : basic_block->get_predecessors())
         {
@@ -205,8 +237,10 @@ struct DumpPointsTo::Impl
         {
             const auto& metadata = instruction->get_metadata();
             ASSUMPTION(metadata.has<metadata::translation::InstructionMeta>());
+
             out << utils::get_offset(offset)
                 << utils::instruction_opcode_to_string(instruction->get_opcode());
+
             constexpr int operand_sep = 1;
             for (const auto& operand : instruction->get_operands())
             {
@@ -282,7 +316,10 @@ DumpPointsTo::~DumpPointsTo() = default;
 program::ProgramIR_sptr DumpPointsTo::run(program::ProgramIR_sptr sala_ir)
 {
     INVARIANT(pImpl_ != nullptr);
-    return pImpl_->run(std::move(sala_ir));
-};
+    std::cout << "DPA: started" << std::endl;
+    sala_ir = pImpl_->run(std::move(sala_ir));
+    std::cout << "DPA: done" << std::endl;
+    return sala_ir;
+}
 
 } // namespace optimizer::passes

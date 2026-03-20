@@ -18,6 +18,7 @@
 namespace optimizer::passes
 {
 namespace grouped_objects = utils::grouped_objects;
+using utils::MayAnalysisState;
 using utils::MayState;
 using utils::Object;
 using utils::objectId;
@@ -38,7 +39,7 @@ struct FunctionContext
         init_data();
     }
 
-    void run(MayState global_may_seed)
+    void run(MayAnalysisState global_may_seed)
     {
         global_may_seed_ = std::move(global_may_seed);
         solve();
@@ -55,13 +56,12 @@ struct FunctionContext
         attach_function_points_to_metadata();
     }
 
-    std::optional<MayState> get_after_global_states()
+    std::optional<MayAnalysisState> get_after_global_states()
     {
-        std::optional<MayState> result_may;
+        std::optional<MayAnalysisState> result_may;
 
-        MayState bb_out_global_may_scratch;
-
-        bb_out_global_may_scratch.reserve(global_may_seed_.size());
+        MayAnalysisState bb_out_global_may_scratch;
+        bb_out_global_may_scratch.may.reserve(global_may_seed_.may.size());
 
         for (const auto exit_bb : exit_basic_blocks)
         {
@@ -132,18 +132,24 @@ struct FunctionContext
         }
     }
 
-    void export_global_object_may(const objectId object_id, const MayState& local_out_may,
-                                  MayState& exported_may) const
+    void export_global_object_may(const objectId object_id, const MayAnalysisState& local_out_may,
+                                  MayAnalysisState& exported_may) const
     {
-        const auto object_end_bb_iter = local_out_may.find(object_id);
-        if (object_end_bb_iter == local_out_may.end())
+        if (local_out_may.poisoned)
+        {
+            utils::poison_may_state(exported_may);
+            return;
+        }
+
+        const auto object_end_bb_iter = local_out_may.may.find(object_id);
+        if (object_end_bb_iter == local_out_may.may.end())
         {
             return;
         }
 
         if (object_end_bb_iter->second.is_top)
         {
-            exported_may.insert_or_assign(object_id, utils::MayValue::top());
+            exported_may.may.insert_or_assign(object_id, utils::MayValue::top());
             return;
         }
 
@@ -157,7 +163,7 @@ struct FunctionContext
             }
             else
             {
-                const auto [iter, inserted] = exported_may.insert(
+                const auto [iter, inserted] = exported_may.may.insert(
                         std::make_pair(object_id, utils::MayValue::singleton(elem)));
                 (void)inserted;
                 exported_iter = iter;
@@ -176,19 +182,30 @@ struct FunctionContext
             }
         }
     }
-    void export_exit_block_to_global_state(const std::size_t end_bb, MayState& exported_may) const
+
+    void export_exit_block_to_global_state(const std::size_t end_bb,
+                                           MayAnalysisState& exported_may) const
     {
         exported_may.clear();
 
         const auto& out_may = out_may_.get(end_bb);
+        if (out_may.poisoned)
+        {
+            utils::poison_may_state(exported_may);
+            return;
+        }
 
-        for (const auto& [object_id, object_info] : *global_objects_)
+        for (const auto& [object_id, _] : *global_objects_)
         {
             export_global_object_may(object_id, out_may, exported_may);
+            if (exported_may.poisoned)
+            {
+                return;
+            }
         }
     }
 
-    void attach_block_points_to_metadata(const std::size_t b, MayState may_in)
+    void attach_block_points_to_metadata(const std::size_t b, MayAnalysisState may_in)
     {
         auto bb_points_to_meta       = std::make_unique<metadata::points_to::BasicBlockMeta>();
         bb_points_to_meta->may_in_id = out_may_.store()->intern(std::move(may_in));
@@ -203,9 +220,9 @@ struct FunctionContext
         function_->get_metadata().set(std::move(function_meta));
     }
 
-    MayState reconstruct_materialized_in_state(const std::size_t b) const
+    MayAnalysisState reconstruct_materialized_in_state(const std::size_t b) const
     {
-        MayState may_in{};
+        MayAnalysisState may_in{};
 
         bool in_initialized = false;
 
@@ -256,6 +273,7 @@ struct FunctionContext
                 variable->get_metadata().set(std::move(points_to_meta));
             }
         };
+
         for (const auto& parameter : function_->get_parameters())
         {
             local_objects_.emplace(id, Object{id, utils::RegionTag::Parameter});
@@ -265,6 +283,7 @@ struct FunctionContext
             ++id;
             parameter->get_metadata().set(std::move(points_to_meta));
         }
+
         assign_object_ids_variables(function_->get_local_variables(), utils::RegionTag::Local);
         last_local_id_ = id - 1;
     }
@@ -351,18 +370,22 @@ struct FunctionContext
         }
     }
 
-    void build_entry_seed_states(MayState& may_in) const
+    void build_entry_seed_states(MayAnalysisState& may_in) const
     {
         may_in = global_may_seed_;
+        if (may_in.poisoned)
+        {
+            return;
+        }
 
         for (const auto param : assumed_ptr_params_)
         {
-            may_in.insert_or_assign(
+            may_in.may.insert_or_assign(
                     param, utils::make_singleton(grouped_objects::OUT_OF_LOCAL_SCOPE, false));
         }
     }
 
-    void build_solver_in_state(const std::size_t b, MayState& may_in)
+    void build_solver_in_state(const std::size_t b, MayAnalysisState& may_in)
     {
         may_in.clear();
 
@@ -388,7 +411,7 @@ struct FunctionContext
             }
             else
             {
-                utils::state_join_or_strict(may_in, out_may_.get(p));
+                utils::points_to::state_join_or_strict(may_in, out_may_.get(p));
             }
         }
 
@@ -398,18 +421,19 @@ struct FunctionContext
         }
     }
 
-    void apply_block_transfers(const std::size_t b, MayState& may_in)
+    void apply_block_transfers(const std::size_t b, MayAnalysisState& may_in)
     {
         std::size_t instruction_id = 0;
 
         for (const auto& instruction : blocks_[b]->get_instructions())
         {
             const auto relevant_ops_size = fill_operands_id(instruction);
+            ASSUMPTION(operands_id_scratch_.size() >= relevant_ops_size);
 
             utils::MayTransferContextBundle may_transfer_context{
                     .pp             = {.function = _id, .bb = b, .instr = instruction_id},
                     .opcode         = instruction->get_opcode(),
-                    .may_in         = may_in,
+                    .state          = may_in,
                     .global_objects = *global_objects_,
                     .local_objects  = local_objects_,
                     .operands_id    = operands_id_scratch_,
@@ -419,22 +443,20 @@ struct FunctionContext
 
             utils::apply_transfer_may(may_transfer_context);
             ++instruction_id;
+
+            if (may_in.poisoned)
+            {
+                return;
+            }
         }
     }
 
-    bool block_out_changed(const std::size_t b, const MayState& may_in) const
+    bool block_out_changed(const std::size_t b, const MayAnalysisState& may_in) const
     {
-        if (!out_may_.equals(b, may_in))
-        {
-            std::cout << "BB:" << b << "BEFORE MAYSTATE\n";
-            dump_may_set(out_may_.get(b));
-            std::cout << "BB:" << b << "AFTER MAYSTATE\n";
-            dump_may_set(may_in);
-        }
         return !out_may_.equals(b, may_in);
     }
 
-    void commit_block_out_state(const std::size_t b, MayState& may_in)
+    void commit_block_out_state(const std::size_t b, MayAnalysisState& may_in)
     {
         out_may_.set(b, may_in);
         may_in.clear();
@@ -507,14 +529,17 @@ struct FunctionContext
     inline std::size_t fill_operands_id(const program::InstructionIR_sptr& instruction)
     {
         const auto relevant_ops_count = utils::get_relevant_operands_count(*instruction);
-        if (relevant_ops_count >= operands_id_scratch_.size())
+        operands_id_scratch_.clear();
+        if (relevant_ops_count > operands_id_scratch_.size())
         {
-            operands_id_scratch_.resize(relevant_ops_count);
+            operands_id_scratch_.reserve(relevant_ops_count);
         }
+
         for (std::size_t i = 0; i < relevant_ops_count; ++i)
         {
-            operands_id_scratch_[i] = get_operand_id(instruction, i);
+            operands_id_scratch_.push_back(get_operand_id(instruction, i));
         }
+
         return relevant_ops_count;
     }
 
@@ -543,13 +568,13 @@ struct FunctionContext
     bool accessed_undefined() const { return accessed_undefined_; }
 
   private:
-    bool                     accessed_undefined_;
+    bool                     accessed_undefined_{false};
     objectId                 last_local_id_{0};
     int                      id_start_;
     std::size_t              _id;
     program::FunctionIR_sptr function_;
 
-    MayState global_may_seed_;
+    MayAnalysisState global_may_seed_;
 
     utils::ObjectPool* global_objects_{};
     utils::ObjectPool  local_objects_;
@@ -557,10 +582,9 @@ struct FunctionContext
     utils::SparseSet<objectId>    assumed_ptr_params_;
     utils::SparseSet<std::size_t> exit_basic_blocks;
 
-    // std::vector<MayState> out_may_;
     utils::BasicBlockMayStateSlots out_may_;
 
-    MayState              in_may_scratch_;
+    MayAnalysisState      in_may_scratch_;
     std::vector<objectId> operands_id_scratch_;
 
     std::size_t NB_{0};
@@ -591,6 +615,7 @@ struct Impl
 
         const auto local_id_start =
                 static_cast<objectId>(points_to_program_meta.global_objects.size());
+
         std::size_t func_id = 0;
         for (const auto& function : sala_ir_->get_functions())
         {
@@ -598,10 +623,11 @@ struct Impl
             {
                 continue;
             }
+
             contexts_.emplace_back(
                     std::make_unique<FunctionContext>(func_id++, function, local_id_start));
         }
-    };
+    }
 
     void run_function_contexts()
     {
@@ -612,19 +638,21 @@ struct Impl
 
         auto& program_metadata = sala_ir_->get_metadata().get<metadata::points_to::ProgramMeta>();
         bool  fixpoint_reached = false;
+
         do
         {
-            std::optional<MayState> fixpoint_may;
+            std::optional<MayAnalysisState> fixpoint_may;
+
             for (auto& context : contexts_)
             {
                 context->run(program_metadata.may_out);
             }
+
             for (auto& context : contexts_)
             {
                 auto possible_out_state = context->get_after_global_states();
                 if (!possible_out_state.has_value())
                 {
-                    // function has no exit we do not propagate the information
                     continue;
                 }
 
@@ -644,7 +672,6 @@ struct Impl
 
             if (!fixpoint_may.has_value())
             {
-                // e.g. One function (not static init) which has no exit
                 fixpoint_reached = true;
             }
             else
@@ -653,7 +680,7 @@ struct Impl
                 program_metadata.may_out = std::move(fixpoint_may.value());
             }
         } while (!fixpoint_reached);
-    };
+    }
 
     void materialize()
     {
@@ -673,6 +700,7 @@ struct Impl
 
 void LocalPointsToAnalysis::run(program::ProgramIR_sptr sala_ir)
 {
-    const auto trigger = Impl(sala_ir);
+    const auto trigger = Impl(std::move(sala_ir));
+    std::cout << "LPA: done" << std::endl;
 }
 } // namespace optimizer::passes
