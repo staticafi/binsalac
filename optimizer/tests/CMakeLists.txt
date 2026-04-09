@@ -20,4 +20,5 @@ include(Catch)
 
 add_subdirectory(translation)
 add_subdirectory(utils)
+add_subdirectory(programIR)
 
