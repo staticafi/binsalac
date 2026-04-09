@@ -90,11 +90,28 @@ class SparseSet
         return {it, true};
     }
 
+    iterator insert(const_iterator hint, const value_type& value)
+    {
+        return insert_with_hint_(hint, value);
+    }
+
+    iterator insert(const_iterator hint, value_type&& value)
+    {
+        return insert_with_hint_(hint, std::move(value));
+    }
+
     template <typename... Args>
     std::pair<iterator, bool> emplace(Args&&... args)
     {
         value_type value{std::forward<Args>(args)...};
         return insert(std::move(value));
+    }
+
+    template <typename... Args>
+    iterator emplace_hint(const_iterator hint, Args&&... args)
+    {
+        value_type value{std::forward<Args>(args)...};
+        return insert(hint, std::move(value));
     }
 
     template <typename It>
@@ -256,6 +273,50 @@ class SparseSet
     const_iterator lower_bound_(const value_type& value) const noexcept
     {
         return std::lower_bound(data_.begin(), data_.end(), value, cmp_);
+    }
+
+    template <typename U>
+    iterator insert_with_hint_(const_iterator hint, U&& value)
+    {
+        if (data_.empty())
+        {
+            return data_.insert(data_.begin(), std::forward<U>(value));
+        }
+
+        if (hint == data_.end())
+        {
+            if (cmp_(data_.back(), value))
+            {
+                return data_.insert(data_.end(), std::forward<U>(value));
+            }
+            if (equal_(data_.back(), value))
+            {
+                return std::prev(data_.end());
+            }
+            return insert(std::forward<U>(value)).first;
+        }
+
+        if (equal_(*hint, value))
+        {
+            return data_.begin() + static_cast<typename storage_type::difference_type>(
+                                           std::distance(data_.cbegin(), hint));
+        }
+
+        const bool ok_after_prev  = (hint == data_.begin()) || cmp_(*std::prev(hint), value);
+        const bool ok_before_hint = cmp_(value, *hint);
+
+        if (ok_after_prev && ok_before_hint)
+        {
+            return data_.insert(hint, std::forward<U>(value));
+        }
+
+        if (hint != data_.begin() && equal_(*std::prev(hint), value))
+        {
+            return data_.begin() + static_cast<typename storage_type::difference_type>(
+                                           std::distance(data_.cbegin(), std::prev(hint)));
+        }
+
+        return insert(std::forward<U>(value)).first;
     }
 };
 
