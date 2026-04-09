@@ -1,5 +1,6 @@
 #include <optimizer/passes/debug/dump_points_to.hpp>
 
+#include <optimizer/analysis/points_to_query.hpp>
 #include <optimizer/metadata/points_to.hpp>
 #include <optimizer/metadata/translation.hpp>
 #include <optimizer/programIR/basic_block_ir.hpp>
@@ -29,9 +30,10 @@ static constexpr std::string_view ERROR = "ERROR";
 
 constexpr int OFFSET_MULT = 2;
 
-void dump_may_in(std::ostream& out, const utils::MayAnalysisState& state, int offset)
+void dump_may_state(std::ostream& out, const utils::MayAnalysisState& state, std::string_view label,
+                    int offset)
 {
-    out << utils::get_offset(offset) << " >>MAY IN: ";
+    out << utils::get_offset(offset) << " >>" << label << " MAY: ";
 
     if (state.poisoned)
     {
@@ -41,17 +43,17 @@ void dump_may_in(std::ostream& out, const utils::MayAnalysisState& state, int of
     {
         for (const auto& kvp : state.may)
         {
-            out << kvp.first << " = " << kvp.second;
-            out << "; ";
+            out << kvp.first << " = " << kvp.second << "; ";
         }
     }
 
     out << "<<\n";
 }
 
-void dump_must_in(std::ostream& out, const utils::MayAnalysisState& state, int offset)
+void dump_must_state(std::ostream& out, const utils::MayAnalysisState& state,
+                     std::string_view label, int offset)
 {
-    out << utils::get_offset(offset) << " >>MUST IN: ";
+    out << utils::get_offset(offset) << " >>" << label << " MUST: ";
 
     if (state.poisoned)
     {
@@ -72,20 +74,20 @@ void dump_must_in(std::ostream& out, const utils::MayAnalysisState& state, int o
     out << "<<\n";
 }
 
-} // namespace
-
-struct DumpPointsTo::Impl
+struct Impl
 {
-    program::ProgramIR_sptr run(program::ProgramIR_sptr sala_ir)
+    Impl(program::ProgramIR_sptr sala_ir) : sala_ir_{std::move(sala_ir)} { run(); }
+
+    program::ProgramIR_sptr run()
     {
         const auto output_path =
-                std::filesystem::path(utils::get_program_name(*sala_ir) + ".points_to_debug");
+                std::filesystem::path(utils::get_program_name(*sala_ir_) + ".points_to_debug");
 
         std::ofstream out(output_path, std::ios::out | std::ios::trunc);
         ASSUMPTION(out.is_open());
 
         out << "__CONSTANTS__\n [\n";
-        for (const auto& constant : sala_ir->get_constants())
+        for (const auto& constant : sala_ir_->get_constants())
         {
             serialize_constant(out, *constant, 2);
             out << "\n";
@@ -93,47 +95,52 @@ struct DumpPointsTo::Impl
         out << " ]\n";
 
         out << "__STATIC__\n [\n";
-        for (const auto& static_var : sala_ir->get_static_vars())
+        for (const auto& static_var : sala_ir_->get_static_vars())
         {
             serialize_variable(out, *static_var, 2);
             out << "\n";
         }
         out << " ]\n";
 
-        for (const auto& function : sala_ir->get_functions())
+        for (const auto& function : sala_ir_->get_functions())
         {
-            serialize_function_def(out, *function, OFFSET_MULT);
+            serialize_function_def(out, function, OFFSET_MULT);
         }
 
-        return sala_ir;
+        return sala_ir_;
     }
 
-    void serialize_function_def(std::ostream& out, const program::FunctionIR& function, int offset)
+    void serialize_function_def(std::ostream& out, const program::FunctionIR_sptr& function,
+                                int offset)
     {
+        ASSUMPTION(function != nullptr);
+
         const auto* function_points_to_meta =
-                function.get_metadata().get_raw<metadata::points_to::FunctionMeta>();
+                function->get_metadata().get_raw<metadata::points_to::FunctionMeta>();
         ASSUMPTION(function_points_to_meta != nullptr);
         ASSUMPTION(function_points_to_meta->bb_may_state_store != nullptr);
 
-        if (function.get_initializer_flag())
+        analysis::PointsToQueryFunction query(function);
+
+        if (function->get_initializer_flag())
         {
             out << "__init__ ";
         }
-        if (function.get_entry_flag())
+        if (function->get_entry_flag())
         {
             out << "__entry__ ";
         }
-        if (function.get_external_flag())
+        if (function->get_external_flag())
         {
             out << "__extern__ ";
         }
 
-        out << utils::get_function_name(function) << ": \n";
+        out << utils::get_function_name(*function) << ": \n";
 
         out << utils::get_offset(offset) << "__params__: \n";
         out << utils::get_offset(offset) << "(\n";
         offset += OFFSET_MULT;
-        for (const auto& param : function.get_parameters())
+        for (const auto& param : function->get_parameters())
         {
             serialize_param(out, *param, offset);
             out << "\n";
@@ -144,7 +151,7 @@ struct DumpPointsTo::Impl
         out << utils::get_offset(offset) << "__locals__: \n";
         out << utils::get_offset(offset) << "[\n";
         offset += OFFSET_MULT;
-        for (const auto& local : function.get_local_variables())
+        for (const auto& local : function->get_local_variables())
         {
             serialize_local(out, *local, offset);
             out << "\n";
@@ -152,13 +159,13 @@ struct DumpPointsTo::Impl
         offset -= OFFSET_MULT;
         out << utils::get_offset(offset) << "]\n";
 
-        fill_bb_map(function);
+        fill_bb_map(*function);
         out << utils::get_offset(offset) << "__basic_blocks__: \n";
         out << utils::get_offset(offset) << "<\n";
         offset += OFFSET_MULT;
-        for (const auto& basic_block : function.get_basic_blocks())
+        for (const auto& basic_block : function->get_basic_blocks())
         {
-            serialize_basic_block(out, basic_block, offset, *function_points_to_meta);
+            serialize_basic_block(out, basic_block, offset, *function_points_to_meta, query);
         }
         offset -= OFFSET_MULT;
         out << utils::get_offset(offset) << ">\n\n";
@@ -181,7 +188,8 @@ struct DumpPointsTo::Impl
 
     void serialize_basic_block(std::ostream& out, const program::BasicBlockIR_sptr& basic_block,
                                int                                      offset,
-                               const metadata::points_to::FunctionMeta& function_points_to_meta)
+                               const metadata::points_to::FunctionMeta& function_points_to_meta,
+                               analysis::PointsToQueryFunction&         query)
     {
         if (basic_block == basic_block->get_function()->get_entry_basic_block())
         {
@@ -202,12 +210,12 @@ struct DumpPointsTo::Impl
             const auto& state =
                     function_points_to_meta.bb_may_state_store->get(points_to_meta.may_in_id);
 
-            dump_may_in(out, state, offset);
-            dump_must_in(out, state, offset);
+            dump_may_state(out, state, "BB-IN", offset);
+            dump_must_state(out, state, "BB-IN", offset);
         }
 
         out << utils::get_offset(offset) << "{\n";
-        serialize_instructions(out, basic_block->get_instructions(), offset + OFFSET_MULT);
+        serialize_instructions(out, basic_block->get_instructions(), offset + OFFSET_MULT, query);
         out << utils::get_offset(offset) << "}\n";
 
         out << utils::get_offset(offset) << "|_succ__:";
@@ -231,12 +239,18 @@ struct DumpPointsTo::Impl
     }
 
     void serialize_instructions(std::ostream& out, const program::InstructionIRListS& instructions,
-                                int offset)
+                                int offset, analysis::PointsToQueryFunction& query)
     {
         for (const auto& instruction : instructions)
         {
             const auto& metadata = instruction->get_metadata();
             ASSUMPTION(metadata.has<metadata::translation::InstructionMeta>());
+
+            const auto before_state = query.before_state(instruction);
+            const auto after_state  = query.after_state(instruction);
+
+            dump_may_state(out, before_state, "BEFORE", offset);
+            dump_must_state(out, before_state, "BEFORE", offset);
 
             out << utils::get_offset(offset)
                 << utils::instruction_opcode_to_string(instruction->get_opcode());
@@ -247,6 +261,9 @@ struct DumpPointsTo::Impl
                 serialize_operand(out, operand, operand_sep);
             }
             out << "\n";
+
+            dump_may_state(out, after_state, "AFTER", offset);
+            dump_must_state(out, after_state, "AFTER", offset);
         }
     }
 
@@ -304,22 +321,15 @@ struct DumpPointsTo::Impl
 
   private:
     std::unordered_map<program::BasicBlockIR_sptr, int> bb_id_map_;
+    program::ProgramIR_sptr                             sala_ir_;
 };
 
-DumpPointsTo::DumpPointsTo()
-{
-    pImpl_ = std::make_unique<DumpPointsTo::Impl>();
-}
+} // namespace
 
-DumpPointsTo::~DumpPointsTo() = default;
-
-program::ProgramIR_sptr DumpPointsTo::run(program::ProgramIR_sptr sala_ir)
+void DumpPointsTo::run(program::ProgramIR_sptr sala_ir)
 {
-    INVARIANT(pImpl_ != nullptr);
-    std::cout << "DPA: started" << std::endl;
-    sala_ir = pImpl_->run(std::move(sala_ir));
-    std::cout << "DPA: done" << std::endl;
-    return sala_ir;
+    ASSUMPTION(sala_ir != nullptr);
+    const auto trigger = Impl(std::move(sala_ir));
 }
 
 } // namespace optimizer::passes

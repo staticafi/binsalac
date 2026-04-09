@@ -15,6 +15,7 @@ enum class MetaKey : uint8_t
 
     POINTS_TO,
     AVAIL_COPY,
+    LIVENESS,
 };
 
 inline std::string to_string(MetaKey key)
@@ -27,6 +28,8 @@ inline std::string to_string(MetaKey key)
         return "POINTS_TO";
     case MetaKey::AVAIL_COPY:
         return "AVAIL_COPY";
+    case MetaKey::LIVENESS:
+        return "LIVENESS";
 
     default:
         return "<<ERROR>>: undefined for: " + std::to_string(static_cast<int>(key));
