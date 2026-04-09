@@ -16,7 +16,7 @@
 
 namespace optimizer::utils::points_to
 {
-using ObjectPool = std::unordered_map<objectId, Object>;
+using ObjectPool = utils::SparseMap<objectId, Object>;
 
 // Raw sparse points-to map.
 // Missing key == bottom for that particular cell.
