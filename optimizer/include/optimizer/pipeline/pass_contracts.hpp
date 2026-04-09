@@ -2,8 +2,10 @@
 #define OPTIMIZER_PIPELINE_PASS_CONTRACTS_HPP_INCLUDED
 
 #include <optimizer/metadata/available_copy.hpp>
+#include <optimizer/metadata/liveness.hpp>
 #include <optimizer/metadata/points_to.hpp>
 #include <optimizer/metadata/translation.hpp>
+
 #include <optimizer/programIR/basic_block_ir.hpp>
 #include <optimizer/programIR/constant_ir.hpp>
 #include <optimizer/programIR/function_ir.hpp>
@@ -11,6 +13,7 @@
 #include <optimizer/programIR/program_ir.hpp>
 #include <optimizer/programIR/program_repr.hpp>
 #include <optimizer/programIR/variable_ir.hpp>
+
 #include <optimizer/utils/type_list.hpp>
 
 #include <cstdint>
@@ -147,6 +150,9 @@ using AvailableCopyVariable =
         MetaProduct<program::VariableIR, metadata::available_copy::VariableMeta>;
 using AvailableCopyAll =
         ProductList<AvailableCopyFunction, AvailableCopyBasicBlock, AvailableCopyVariable>;
+
+using LivenessBasicBlock = MetaProduct<program::BasicBlockIR, metadata::liveness::BasicBlockMeta>;
+using LivenessAll        = ProductList<LivenessBasicBlock>;
 } // namespace products
 } // namespace optimizer::pipeline
 
