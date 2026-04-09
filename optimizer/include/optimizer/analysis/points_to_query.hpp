@@ -1,10 +1,10 @@
 #ifndef OPTIMIZER_POINTS_TO_QUERY_HPP_INCLUDED
 #define OPTIMIZER_POINTS_TO_QUERY_HPP_INCLUDED
+
 #include <optimizer/metadata/points_to.hpp>
 #include <optimizer/utils/points_to/defines.hpp>
 
 #include <functional>
-#include <span>
 
 namespace optimizer::analysis
 {
@@ -18,7 +18,7 @@ struct PointsToResult
     utils::SparseSet<Target> may;
 };
 
-// Quering within a function context
+// Querying within a function context
 class PointsToQueryFunction
 {
   public:
@@ -30,17 +30,24 @@ class PointsToQueryFunction
                           const program::ConstantIR&         x);
 
     PointsToResult after(const program::InstructionIR_sptr& instruction,
-                         const program::ConstantIR&         x);
-    PointsToResult after(const program::InstructionIR_sptr& instruction,
                          const program::VariableIR&         x);
+    PointsToResult after(const program::InstructionIR_sptr& instruction,
+                         const program::ConstantIR&         x);
+
+    // Whole-state queries
+    [[nodiscard]] utils::points_to::MayAnalysisState
+    before_state(const program::InstructionIR_sptr& instruction);
+
+    [[nodiscard]] utils::points_to::MayAnalysisState
+    after_state(const program::InstructionIR_sptr& instruction);
 
     std::optional<program::OperandIR_sptr> get_object(objectId id) const;
 
   private:
     struct cache_t
     {
-        program::BasicBlockIR_raw          bb;
-        program::InstructionIR_raw         instr;
+        program::BasicBlockIR_raw          bb{nullptr};
+        program::InstructionIR_raw         instr{nullptr};
         utils::points_to::MayAnalysisState state;
     };
 
@@ -50,27 +57,40 @@ class PointsToQueryFunction
     PointsToResult handle_cache_hit(const program::InstructionIR_sptr& instruction,
                                     const program::VariableIR& x, bool before);
 
+    [[nodiscard]] utils::points_to::MayAnalysisState
+    handle_state_request(const program::InstructionIR_sptr& instruction, bool before);
+
+    [[nodiscard]] utils::points_to::MayAnalysisState
+    compute_after_state_from_cache(const program::InstructionIR_sptr& instruction);
+
     [[nodiscard]] const metadata::points_to::ObjectPool*
     get_object_pool(const program::InstructionIR_sptr& instruction, const program::VariableIR& x);
+
     void populate_cache_before(const program::InstructionIR_sptr& instruction);
+
     void apply_transfer_to_state(const program::InstructionIR_sptr&  instruction,
-                                 utils::points_to::MayAnalysisState& state,
-                                 const std::size_t bb_index, const std::size_t instr_index);
+                                 utils::points_to::MayAnalysisState& state, std::size_t bb_index,
+                                 std::size_t instr_index);
+
+    void build_object_cache();
 
   private:
-    program::ProgramIR_csptr  program_keepalive_;
-    program::FunctionIR_csptr function_;
-    objectId                  last_local_id_{0};
+    program::ProgramIR_csptr                            program_keepalive_;
+    program::FunctionIR_csptr                           function_;
+    objectId                                            last_local_id_{0};
+    utils::SparseMap<objectId, program::OperandIR_sptr> object_cache_;
 
     cache_t cache_;
 
-    const metadata::points_to::ProgramMeta*  program_meta_{};
-    const metadata::points_to::FunctionMeta* function_meta_{};
+    const metadata::points_to::ProgramMeta*  program_meta_{nullptr};
+    const metadata::points_to::FunctionMeta* function_meta_{nullptr};
 
-    const metadata::points_to::ObjectPool* global_objects_{};
-    const metadata::points_to::ObjectPool* local_objects_{};
+    const metadata::points_to::ObjectPool* global_objects_{nullptr};
+    const metadata::points_to::ObjectPool* local_objects_{nullptr};
 
     std::function<void(const utils::points_to::MayTransferContextBundle& context)> transfer_may_;
 };
+
 } // namespace optimizer::analysis
+
 #endif
