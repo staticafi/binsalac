@@ -99,7 +99,6 @@ inline objectId compute_last_local_id(const metadata::points_to::ObjectPool& loc
 
     for (const auto& [id, object] : local_objects)
     {
-        (void)object;
         if (first || id > result)
         {
             result = id;
@@ -151,6 +150,58 @@ inline PointsToResult make_result_from_state(const MayAnalysisState& state,
 
 } // namespace
 
+void PointsToQueryFunction::build_object_cache()
+{
+    object_cache_.clear();
+    object_cache_.reserve(program_keepalive_->get_constants().size() +
+                          program_keepalive_->get_static_vars().size() +
+                          function_->get_parameters().size() +
+                          function_->get_local_variables().size());
+
+    const auto add_variable = [this](const auto& variable_sptr)
+    {
+        ASSUMPTION(variable_sptr != nullptr);
+
+        const auto* meta =
+                variable_sptr->get_metadata().template get_raw<metadata::points_to::VariableMeta>();
+        if (meta != nullptr)
+        {
+            object_cache_.emplace_hint(object_cache_.end(), meta->id,
+                                       program::OperandIR_sptr{variable_sptr});
+        }
+    };
+
+    const auto add_constant = [this](const auto& constant_sptr)
+    {
+        ASSUMPTION(constant_sptr != nullptr);
+
+        const auto* meta =
+                constant_sptr->get_metadata().template get_raw<metadata::points_to::ConstantMeta>();
+        if (meta != nullptr)
+        {
+            object_cache_.emplace_hint(object_cache_.end(), meta->id,
+                                       program::OperandIR_sptr{constant_sptr});
+        }
+    };
+
+    for (const auto& constant : program_keepalive_->get_constants())
+    {
+        add_constant(constant);
+    }
+    for (const auto& variable : program_keepalive_->get_static_vars())
+    {
+        add_variable(variable);
+    }
+    for (const auto& parameter : function_->get_parameters())
+    {
+        add_variable(parameter);
+    }
+    for (const auto& variable : function_->get_local_variables())
+    {
+        add_variable(variable);
+    }
+}
+
 PointsToQueryFunction::PointsToQueryFunction(program::FunctionIR_csptr function)
     : program_keepalive_{}, function_{std::move(function)}
 {
@@ -172,6 +223,7 @@ PointsToQueryFunction::PointsToQueryFunction(program::FunctionIR_csptr function)
     ASSUMPTION(static_cast<bool>(transfer_may_));
 
     last_local_id_ = compute_last_local_id(*local_objects_);
+    build_object_cache();
 
     cache_.bb    = nullptr;
     cache_.instr = nullptr;
@@ -287,6 +339,44 @@ void PointsToQueryFunction::populate_cache_before(const program::InstructionIR_s
     }
 }
 
+utils::points_to::MayAnalysisState PointsToQueryFunction::compute_after_state_from_cache(
+        const program::InstructionIR_sptr& instruction)
+{
+    ASSUMPTION(instruction != nullptr);
+    ASSUMPTION(cache_.bb == instruction->get_basic_block_raw());
+    ASSUMPTION(cache_.instr == instruction.get());
+
+    auto after_state = cache_.state;
+    if (!after_state.poisoned)
+    {
+        const auto bb_index = get_basic_block_index(function_, instruction->get_basic_block_raw());
+        const auto instr_index = get_instruction_index(instruction);
+        apply_transfer_to_state(instruction, after_state, bb_index, instr_index);
+    }
+
+    return after_state;
+}
+
+utils::points_to::MayAnalysisState
+PointsToQueryFunction::handle_state_request(const program::InstructionIR_sptr& instruction,
+                                            bool                               before)
+{
+    ASSUMPTION(instruction != nullptr);
+
+    const auto bb_raw = instruction->get_basic_block_raw();
+    ASSUMPTION(bb_raw != nullptr);
+    ASSUMPTION(bb_raw->get_function_raw() == function_.get());
+
+    populate_cache_before(instruction);
+
+    if (before)
+    {
+        return cache_.state;
+    }
+
+    return compute_after_state_from_cache(instruction);
+}
+
 PointsToResult
 PointsToQueryFunction::handle_cache_hit(const program::InstructionIR_sptr& instruction,
                                         const program::VariableIR& x, bool before)
@@ -305,14 +395,7 @@ PointsToQueryFunction::handle_cache_hit(const program::InstructionIR_sptr& instr
         return make_result_from_state(cache_.state, queried_id);
     }
 
-    auto after_state = cache_.state;
-    if (!after_state.poisoned)
-    {
-        const auto bb_index = get_basic_block_index(function_, instruction->get_basic_block_raw());
-        const auto instr_index = get_instruction_index(instruction);
-        apply_transfer_to_state(instruction, after_state, bb_index, instr_index);
-    }
-
+    const auto after_state = compute_after_state_from_cache(instruction);
     return make_result_from_state(after_state, queried_id);
 }
 
@@ -327,6 +410,18 @@ PointsToResult PointsToQueryFunction::handle_request(const program::InstructionI
 
     populate_cache_before(instruction);
     return handle_cache_hit(instruction, x, before);
+}
+
+utils::points_to::MayAnalysisState
+PointsToQueryFunction::before_state(const program::InstructionIR_sptr& instruction)
+{
+    return handle_state_request(instruction, true);
+}
+
+utils::points_to::MayAnalysisState
+PointsToQueryFunction::after_state(const program::InstructionIR_sptr& instruction)
+{
+    return handle_state_request(instruction, false);
 }
 
 PointsToResult PointsToQueryFunction::before(const program::InstructionIR_sptr& instruction,
@@ -344,80 +439,26 @@ PointsToResult PointsToQueryFunction::after(const program::InstructionIR_sptr& i
 PointsToResult PointsToQueryFunction::before(const program::InstructionIR_sptr& instruction,
                                              const program::ConstantIR&         x)
 {
-    ASSUMPTION(instruction != nullptr);
-
-    const auto bb_raw = instruction->get_basic_block_raw();
-    ASSUMPTION(bb_raw != nullptr);
-    ASSUMPTION(bb_raw->get_function_raw() == function_.get());
-
-    populate_cache_before(instruction);
-
-    const auto queried_id = get_constant_id(x);
-    return make_result_from_state(cache_.state, queried_id);
+    const auto state = before_state(instruction);
+    return make_result_from_state(state, get_constant_id(x));
 }
 
 PointsToResult PointsToQueryFunction::after(const program::InstructionIR_sptr& instruction,
                                             const program::ConstantIR&         x)
 {
-    ASSUMPTION(instruction != nullptr);
-
-    const auto bb_raw = instruction->get_basic_block_raw();
-    ASSUMPTION(bb_raw != nullptr);
-    ASSUMPTION(bb_raw->get_function_raw() == function_.get());
-
-    populate_cache_before(instruction);
-
-    auto after_state = cache_.state;
-    if (!after_state.poisoned)
-    {
-        const auto bb_index    = get_basic_block_index(function_, bb_raw);
-        const auto instr_index = get_instruction_index(instruction);
-        apply_transfer_to_state(instruction, after_state, bb_index, instr_index);
-    }
-
-    const auto queried_id = get_constant_id(x);
-    return make_result_from_state(after_state, queried_id);
+    const auto state = after_state(instruction);
+    return make_result_from_state(state, get_constant_id(x));
 }
 
 std::optional<program::OperandIR_sptr> PointsToQueryFunction::get_object(objectId id) const
 {
-    for (const auto& parameter : function_->get_parameters())
+    const auto object_cache_iter = object_cache_.find(id);
+    if (object_cache_iter == object_cache_.end())
     {
-        const auto* meta = parameter->get_metadata().get_raw<metadata::points_to::VariableMeta>();
-        if (meta != nullptr && meta->id == id)
-        {
-            return program::OperandIR_sptr{parameter};
-        }
+        return std::nullopt;
     }
 
-    for (const auto& variable : function_->get_local_variables())
-    {
-        const auto* meta = variable->get_metadata().get_raw<metadata::points_to::VariableMeta>();
-        if (meta != nullptr && meta->id == id)
-        {
-            return program::OperandIR_sptr{variable};
-        }
-    }
-
-    for (const auto& variable : program_keepalive_->get_static_vars())
-    {
-        const auto* meta = variable->get_metadata().get_raw<metadata::points_to::VariableMeta>();
-        if (meta != nullptr && meta->id == id)
-        {
-            return program::OperandIR_sptr{variable};
-        }
-    }
-
-    for (const auto& constant : program_keepalive_->get_constants())
-    {
-        const auto* meta = constant->get_metadata().get_raw<metadata::points_to::ConstantMeta>();
-        if (meta != nullptr && meta->id == id)
-        {
-            return program::OperandIR_sptr{constant};
-        }
-    }
-
-    return std::nullopt;
+    return object_cache_iter->second;
 }
 
 } // namespace optimizer::analysis
