@@ -18,5 +18,6 @@ target_link_libraries(optimizer_tests_common INTERFACE
 
 include(Catch)
 
+add_subdirectory(translation)
 add_subdirectory(utils)
 
