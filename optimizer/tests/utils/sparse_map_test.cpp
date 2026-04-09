@@ -38,9 +38,8 @@ TEST_CASE("SparseMap operator[] inserts default values and keeps keys sorted", "
     REQUIRE(map.at(5) == 50);
 
     std::vector<int> keys;
-    for (const auto& [key, value] : map)
+    for (const auto& [key, _] : map)
     {
-        (void)value;
         keys.push_back(key);
     }
 
@@ -255,4 +254,186 @@ TEST_CASE("SparseMap equality compares contents", "[SparseMap]")
 
     REQUIRE(a == b);
     REQUIRE_FALSE(a == c);
+}
+
+TEST_CASE("SparseMap operator[] default constructs missing value", "[SparseMap]")
+{
+    SparseMap<int, std::string> map;
+
+    auto& value = map[7];
+
+    REQUIRE(map.size() == 1);
+    REQUIRE(map.contains(7));
+    REQUIRE(value.empty());
+
+    value = "seven";
+    REQUIRE(map.at(7) == "seven");
+}
+
+TEST_CASE("SparseMap find works for const and non-const maps", "[SparseMap]")
+{
+    SparseMap<int, int> map;
+    map.insert({1, 10});
+    map.insert({3, 30});
+
+    auto it = map.find(3);
+    REQUIRE(it != map.end());
+    REQUIRE(it->first == 3);
+    REQUIRE(it->second == 30);
+
+    auto missing = map.find(2);
+    REQUIRE(missing == map.end());
+
+    const auto& constMap = map;
+    auto        cit      = constMap.find(1);
+    REQUIRE(cit != constMap.end());
+    REQUIRE(cit->first == 1);
+    REQUIRE(cit->second == 10);
+
+    auto cmissing = constMap.find(99);
+    REQUIRE(cmissing == constMap.end());
+}
+
+TEST_CASE("SparseMap reserve does not change logical contents", "[SparseMap]")
+{
+    SparseMap<int, int> map;
+    map.reserve(32);
+
+    REQUIRE(map.empty());
+    REQUIRE(map.size() == 0);
+
+    map.insert({2, 20});
+    map.insert({1, 10});
+
+    REQUIRE(map.size() == 2);
+    REQUIRE(map.at(1) == 10);
+    REQUIRE(map.at(2) == 20);
+}
+
+TEST_CASE("SparseMap insert with hint inserts in the middle", "[SparseMap]")
+{
+    SparseMap<int, int> map;
+    map.insert({1, 10});
+    map.insert({5, 50});
+
+    auto hint = map.find(5);
+    REQUIRE(hint != map.end());
+
+    auto it = map.insert(hint, {3, 30});
+
+    REQUIRE(it != map.end());
+    REQUIRE(it->first == 3);
+    REQUIRE(it->second == 30);
+    REQUIRE(map.size() == 3);
+
+    std::vector<int> keys;
+    for (const auto& [key, _] : map)
+    {
+        keys.push_back(key);
+    }
+
+    REQUIRE(keys == std::vector<int>{1, 3, 5});
+}
+
+TEST_CASE("SparseMap insert with begin hint returns existing previous duplicate", "[SparseMap]")
+{
+    SparseMap<int, int> map;
+    map.insert({1, 10});
+    map.insert({3, 30});
+    map.insert({5, 50});
+
+    auto hint = map.find(3);
+    REQUIRE(hint != map.end());
+
+    auto it = map.insert(hint, {1, 999});
+
+    REQUIRE(it != map.end());
+    REQUIRE(it->first == 1);
+    REQUIRE(it->second == 10);
+    REQUIRE(map.size() == 3);
+}
+
+TEST_CASE("SparseMap insert_or_assign with hint falls back when hint is poor", "[SparseMap]")
+{
+    SparseMap<int, std::string> map;
+    map.insert({2, "two"});
+    map.insert({6, "six"});
+
+    auto poorHint = map.begin();
+    auto it       = map.insert_or_assign(poorHint, 4, "four");
+
+    REQUIRE(it != map.end());
+    REQUIRE(it->first == 4);
+    REQUIRE(it->second == "four");
+    REQUIRE(map.size() == 3);
+
+    std::vector<int> keys;
+    for (const auto& [key, _] : map)
+    {
+        keys.push_back(key);
+    }
+
+    REQUIRE(keys == std::vector<int>{2, 4, 6});
+}
+
+TEST_CASE("SparseMap emplace does not overwrite existing key", "[SparseMap]")
+{
+    SparseMap<int, std::string> map;
+
+    auto [it1, inserted1] = map.emplace(1, "one");
+    REQUIRE(inserted1);
+    REQUIRE(it1->second == "one");
+
+    auto [it2, inserted2] = map.emplace(1, "different");
+    REQUIRE_FALSE(inserted2);
+    REQUIRE(it2 == it1);
+    REQUIRE(map.size() == 1);
+    REQUIRE(map.at(1) == "one");
+}
+
+TEST_CASE("SparseMap erase end iterator after removing last element", "[SparseMap]")
+{
+    SparseMap<int, int> map;
+    map.insert({1, 10});
+
+    auto it = map.find(1);
+    REQUIRE(it != map.end());
+
+    auto next = map.erase(it);
+
+    REQUIRE(next == map.end());
+    REQUIRE(map.empty());
+}
+
+TEST_CASE("SparseMap supports mutable iteration over values", "[SparseMap]")
+{
+    SparseMap<int, int> map;
+    map.insert({1, 10});
+    map.insert({2, 20});
+
+    for (auto& [key, value] : map)
+    {
+        value += key;
+    }
+
+    REQUIRE(map.at(1) == 11);
+    REQUIRE(map.at(2) == 22);
+}
+
+TEST_CASE("SparseMap const iteration preserves sorted order", "[SparseMap]")
+{
+    SparseMap<int, int> map;
+    map.insert({4, 40});
+    map.insert({2, 20});
+    map.insert({3, 30});
+
+    const auto& constMap = map;
+
+    std::vector<int> keys;
+    for (const auto& [key, _] : constMap)
+    {
+        keys.push_back(key);
+    }
+
+    REQUIRE(keys == std::vector<int>{2, 3, 4});
 }
