@@ -3,7 +3,9 @@
 
 #include <algorithm>
 #include <stdexcept>
+#include <utility>
 #include <vector>
+
 namespace optimizer::utils
 {
 
@@ -15,9 +17,9 @@ class SparseMap
     using mapped_type    = ValueT;
     using value_type     = std::pair<key_type, mapped_type>;
     using storage_type   = std::vector<value_type>;
-    using iterator       = storage_type::iterator;
-    using const_iterator = storage_type::const_iterator;
-    using size_type      = storage_type::size_type;
+    using iterator       = typename storage_type::iterator;
+    using const_iterator = typename storage_type::const_iterator;
+    using size_type      = typename storage_type::size_type;
 
     SparseMap() = default;
 
@@ -110,10 +112,26 @@ class SparseMap
         return {it, true};
     }
 
+    iterator insert(const_iterator hint, const value_type& value)
+    {
+        return insert_with_hint_(hint, value);
+    }
+
+    iterator insert(const_iterator hint, value_type&& value)
+    {
+        return insert_with_hint_(hint, std::move(value));
+    }
+
     template <typename K, typename V>
     std::pair<iterator, bool> emplace(K&& key, V&& value)
     {
         return insert(value_type{std::forward<K>(key), std::forward<V>(value)});
+    }
+
+    template <typename K, typename V>
+    iterator emplace_hint(const_iterator hint, K&& key, V&& value)
+    {
+        return insert(hint, value_type{std::forward<K>(key), std::forward<V>(value)});
     }
 
     template <typename K, typename V>
@@ -127,6 +145,60 @@ class SparseMap
         }
         it = data_.insert(it, value_type{std::forward<K>(key), std::forward<V>(value)});
         return {it, true};
+    }
+
+    template <typename K, typename V>
+    iterator insert_or_assign(const_iterator hint, K&& key, V&& value)
+    {
+        if (data_.empty())
+        {
+            return data_.insert(data_.begin(),
+                                value_type{std::forward<K>(key), std::forward<V>(value)});
+        }
+
+        if (hint == data_.end())
+        {
+            if (data_.back().first < key)
+            {
+                return data_.insert(data_.end(),
+                                    value_type{std::forward<K>(key), std::forward<V>(value)});
+            }
+            if (data_.back().first == key)
+            {
+                auto it    = std::prev(data_.end());
+                it->second = std::forward<V>(value);
+                return it;
+            }
+        }
+        else
+        {
+            auto idx = static_cast<typename storage_type::difference_type>(
+                    std::distance(data_.cbegin(), hint));
+            auto it = data_.begin() + idx;
+
+            if (it->first == key)
+            {
+                it->second = std::forward<V>(value);
+                return it;
+            }
+
+            const bool ok_after_prev = (it == data_.begin()) || (std::prev(it)->first < key);
+            const bool ok_before_it  = key < it->first;
+
+            if (ok_after_prev && ok_before_it)
+            {
+                return data_.insert(it, value_type{std::forward<K>(key), std::forward<V>(value)});
+            }
+
+            if (it != data_.begin() && std::prev(it)->first == key)
+            {
+                auto prev    = std::prev(it);
+                prev->second = std::forward<V>(value);
+                return prev;
+            }
+        }
+
+        return insert_or_assign(std::forward<K>(key), std::forward<V>(value)).first;
     }
 
     void erase(const key_type key)
@@ -157,7 +229,56 @@ class SparseMap
                                 [](const value_type& elem, const key_type k)
                                 { return elem.first < k; });
     }
+
+    template <typename U>
+    iterator insert_with_hint_(const_iterator hint, U&& value)
+    {
+        const key_type& key = value.first;
+
+        if (data_.empty())
+        {
+            return data_.insert(data_.begin(), std::forward<U>(value));
+        }
+
+        if (hint == data_.end())
+        {
+            if (data_.back().first < key)
+            {
+                return data_.insert(data_.end(), std::forward<U>(value));
+            }
+            if (data_.back().first == key)
+            {
+                return std::prev(data_.end());
+            }
+            return insert(std::forward<U>(value)).first;
+        }
+
+        auto idx = static_cast<typename storage_type::difference_type>(
+                std::distance(data_.cbegin(), hint));
+        auto it = data_.begin() + idx;
+
+        if (it->first == key)
+        {
+            return it;
+        }
+
+        const bool ok_after_prev = (it == data_.begin()) || (std::prev(it)->first < key);
+        const bool ok_before_it  = key < it->first;
+
+        if (ok_after_prev && ok_before_it)
+        {
+            return data_.insert(it, std::forward<U>(value));
+        }
+
+        if (it != data_.begin() && std::prev(it)->first == key)
+        {
+            return std::prev(it);
+        }
+
+        return insert(std::forward<U>(value)).first;
+    }
 };
 
 } // namespace optimizer::utils
+
 #endif
