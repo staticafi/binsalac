@@ -15,7 +15,7 @@ namespace optimizer::passes
 using MetaKey = metadata::MetaKey;
 namespace
 {
-struct TransformationContext
+struct PendingTransform
 {
     program::InstructionIR_sptr instruction;
     program::OperandIRVecR_iter indirection_iter;
@@ -64,7 +64,6 @@ class FunctionContext
             }
         }
 
-        // we have to perform the transformations at the end of the processed basic_block
         process_transforms();
     }
 
@@ -134,7 +133,7 @@ class FunctionContext
             return;
         }
 
-        TransformationContext to_transform;
+        PendingTransform to_transform;
         to_transform.instruction      = instruction;
         to_transform.indirection_iter = indirect_operand_iter;
         to_transform.target           = target_operand.value();
@@ -145,7 +144,7 @@ class FunctionContext
     program::FunctionIR_sptr        function_;
     analysis::PointsToQueryFunction function_query_;
 
-    std::vector<TransformationContext> to_transform_;
+    std::vector<PendingTransform> to_transform_;
 };
 } // namespace
 
@@ -182,7 +181,9 @@ RemoveIndirections::RemoveIndirections()  = default;
 program::ProgramIR_sptr RemoveIndirections::run(program::ProgramIR_sptr sala_ir)
 {
     ASSUMPTION(sala_ir->get_metadata().has<metadata::points_to::ProgramMeta>());
+    std::cout << "RI: started" << std::endl;
     pImpl_ = std::make_unique<Impl>(sala_ir);
+    std::cout << "RI: done" << std::endl;
     return sala_ir;
 }
 } // namespace optimizer::passes

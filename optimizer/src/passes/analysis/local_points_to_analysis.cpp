@@ -267,7 +267,7 @@ struct FunctionContext
         {
             for (const auto& variable : variables)
             {
-                local_objects_.emplace(id, Object{id, region});
+                local_objects_.emplace_hint(local_objects_.end(), id, Object{id, region});
                 auto points_to_meta = std::make_unique<metadata::points_to::VariableMeta>();
                 points_to_meta->id  = id++;
                 variable->get_metadata().set(std::move(points_to_meta));
@@ -276,10 +276,11 @@ struct FunctionContext
 
         for (const auto& parameter : function_->get_parameters())
         {
-            local_objects_.emplace(id, Object{id, utils::RegionTag::Parameter});
+            local_objects_.emplace_hint(local_objects_.end(), id,
+                                        Object{id, utils::RegionTag::Parameter});
             auto points_to_meta = std::make_unique<metadata::points_to::VariableMeta>();
             points_to_meta->id  = id;
-            assumed_ptr_params_.insert(id);
+            assumed_ptr_params_.insert(assumed_ptr_params_.end(), id);
             ++id;
             parameter->get_metadata().set(std::move(points_to_meta));
         }
@@ -700,6 +701,7 @@ struct Impl
 
 void LocalPointsToAnalysis::run(program::ProgramIR_sptr sala_ir)
 {
+    std::cout << "LPA: started" << std::endl;
     const auto trigger = Impl(std::move(sala_ir));
     std::cout << "LPA: done" << std::endl;
 }

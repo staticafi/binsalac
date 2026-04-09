@@ -11,8 +11,6 @@
 #include <queue>
 #include <utility/assumptions.hpp>
 
-#include <map>
-
 namespace optimizer::passes
 {
 using utils::MayAnalysisState;
@@ -20,8 +18,9 @@ using utils::MayState;
 using utils::Object;
 using utils::objectId;
 
-struct GlobalPointsToAnalysis::Impl
+class Impl
 {
+  public:
     Impl(program::ProgramIR_sptr sala_ir)
         : sala_ir_(std::move(sala_ir)), static_init_{sala_ir_->get_static_initializer_func()}
     {
@@ -368,13 +367,10 @@ struct GlobalPointsToAnalysis::Impl
     std::unordered_map<program::BasicBlockIR_sptr, std::size_t> index_of_;
 };
 
-GlobalPointsToAnalysis::GlobalPointsToAnalysis() = default;
-
-GlobalPointsToAnalysis::~GlobalPointsToAnalysis() = default;
-
-program::ProgramIR_sptr GlobalPointsToAnalysis::run(program::ProgramIR_sptr sala_ir)
+void GlobalPointsToAnalysis::run(program::ProgramIR_sptr sala_ir)
 {
-    pImpl_ = std::make_unique<GlobalPointsToAnalysis::Impl>(sala_ir);
-    return sala_ir;
+    std::cout << "GPA: started" << std::endl;
+    const auto trigger = Impl(std::move(sala_ir));
+    std::cout << "GPA: done" << std::endl;
 }
 } // namespace optimizer::passes

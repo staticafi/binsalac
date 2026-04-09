@@ -32,9 +32,8 @@ struct ConstantViewEq
         return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin());
     }
 };
-} // namespace
 
-class MergeConstants::Impl
+class Impl
 {
   public:
     explicit Impl(program::ProgramIR_sptr sala_ir) : sala_ir_(std::move(sala_ir)) { run(); }
@@ -208,13 +207,12 @@ class MergeConstants::Impl
                                                 canonical_constant_map_;
     std::unordered_set<program::ConstantIR_raw> duplicates_;
 };
+} // namespace
 
-MergeConstants::MergeConstants()  = default;
-MergeConstants::~MergeConstants() = default;
-
-program::ProgramIR_sptr MergeConstants::run(program::ProgramIR_sptr sala_ir)
+void MergeConstants::run(program::ProgramIR_sptr sala_ir)
 {
-    pImpl_ = std::make_unique<MergeConstants::Impl>(sala_ir);
-    return sala_ir;
+    std::cout << "MCT: started" << std::endl;
+    const auto trigger = Impl(std::move(sala_ir));
+    std::cout << "MCT: done" << std::endl;
 }
 } // namespace optimizer::passes

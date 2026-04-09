@@ -30,20 +30,20 @@ namespace
 static constexpr std::string_view ERROR       = "ERROR";
 constexpr int                     OFFSET_MULT = 2;
 
-} // namespace
-
-struct DumpAvailCopy::Impl
+struct Impl
 {
-    program::ProgramIR_sptr run(program::ProgramIR_sptr sala_ir)
+    Impl(program::ProgramIR_sptr sala_ir) : sala_ir_{std::move(sala_ir)} { run(); }
+
+    program::ProgramIR_sptr run()
     {
         const auto output_path =
-                std::filesystem::path(utils::get_program_name(*sala_ir) + ".available_copy_debug");
+                std::filesystem::path(utils::get_program_name(*sala_ir_) + ".available_copy_debug");
 
         std::ofstream out(output_path, std::ios::out | std::ios::trunc);
         ASSUMPTION(out.is_open());
 
         out << "__CONSTANTS__\n [\n";
-        for (const auto& constant : sala_ir->get_constants())
+        for (const auto& constant : sala_ir_->get_constants())
         {
             serialize_constant(out, *constant, 2);
             out << "\n";
@@ -51,19 +51,19 @@ struct DumpAvailCopy::Impl
         out << " ]\n";
 
         out << "__STATIC__\n [\n";
-        for (const auto& static_var : sala_ir->get_static_vars())
+        for (const auto& static_var : sala_ir_->get_static_vars())
         {
             serialize_variable(out, *static_var, 2);
             out << "\n";
         }
         out << " ]\n";
 
-        for (const auto& function : sala_ir->get_functions())
+        for (const auto& function : sala_ir_->get_functions())
         {
             serialize_function_def(out, function, OFFSET_MULT);
         }
 
-        return sala_ir;
+        return sala_ir_;
     }
 
     void serialize_function_def(std::ostream& out, const program::FunctionIR_sptr& function,
@@ -390,19 +390,16 @@ struct DumpAvailCopy::Impl
 
   private:
     std::unordered_map<program::BasicBlockIR_sptr, int> bb_id_map_;
+    program::ProgramIR_sptr                             sala_ir_;
 };
+} // namespace
 
-DumpAvailCopy::DumpAvailCopy()
+void DumpAvailCopy::run(program::ProgramIR_sptr sala_ir)
 {
-    pImpl_ = std::make_unique<DumpAvailCopy::Impl>();
-}
-
-DumpAvailCopy::~DumpAvailCopy() = default;
-
-program::ProgramIR_sptr DumpAvailCopy::run(program::ProgramIR_sptr sala_ir)
-{
-    INVARIANT(pImpl_ != nullptr);
-    return pImpl_->run(std::move(sala_ir));
+    ASSUMPTION(sala_ir != nullptr);
+    std::cout << "DAC: started" << std::endl;
+    const auto trigger = Impl(std::move(sala_ir));
+    std::cout << "DAC: done" << std::endl;
 }
 
 } // namespace optimizer::passes

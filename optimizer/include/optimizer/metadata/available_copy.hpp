@@ -22,9 +22,10 @@ struct VariableMeta final : AvailCopyMetaEntry<VariableMetaEntryI>
 
 struct FunctionMeta final : AvailCopyMetaEntry<FunctionMetaEntryI>
 {
-    std::vector<utils::CopyFact>          facts{};
-    std::vector<std::vector<std::size_t>> facts_by_dest{};
-    std::vector<std::vector<std::size_t>> facts_by_source{};
+    std::vector<utils::CopyFact>                            facts{};
+    std::vector<std::vector<std::size_t>>                   facts_by_dest{};
+    std::vector<std::vector<std::size_t>>                   facts_by_source{};
+    utils::SparseMap<std::size_t, program::VariableIR_sptr> variables_by_id{};
 };
 
 struct BasicBlockMeta final : AvailCopyMetaEntry<BasicBlockMetaEntryI>
