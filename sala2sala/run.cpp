@@ -49,6 +49,6 @@ void run(int argc, char* argv[])
     {
         ostr.close();
         ostr.open(output_json_file.replace_extension("jsonc").c_str(), std::ios_base::binary);
-        ostr << sala::enable_json_comments << P << sala::disable_json_comments;
+        ostr << sala::enable_json_comments << *P << sala::disable_json_comments;
     }
 }
