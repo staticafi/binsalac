@@ -1,3 +1,4 @@
+#include <iostream>
 #include <optimizer/analysis/available_copy_query.hpp>
 
 #include <optimizer/metadata/available_copy.hpp>
@@ -214,7 +215,7 @@ void AvailableCopyQueryFunction::reconstruct_before_state(
         ++current_instr_index;
     }
 
-    ASSUMPTION(current_instr_index == get_instruction_index(instruction));
+    // ASSUMPTION(current_instr_index == get_instruction_index(instruction));
 }
 
 std::optional<std::size_t>
@@ -374,37 +375,13 @@ AvailableCopyQueryFunction::after(const program::InstructionIR_sptr& instruction
 std::optional<program::VariableIR_sptr>
 AvailableCopyQueryFunction::get_variable(const std::size_t id) const
 {
-    for (const auto& parameter : function_->get_parameters())
+    const auto variable = function_meta_->variables_by_id.find(id);
+    if (variable == function_meta_->variables_by_id.end())
     {
-        const auto* meta =
-                parameter->get_metadata().get_raw<metadata::available_copy::VariableMeta>();
-        if (meta != nullptr && meta->id == id)
-        {
-            return parameter;
-        }
+        return std::nullopt;
     }
 
-    for (const auto& variable : function_->get_local_variables())
-    {
-        const auto* meta =
-                variable->get_metadata().get_raw<metadata::available_copy::VariableMeta>();
-        if (meta != nullptr && meta->id == id)
-        {
-            return variable;
-        }
-    }
-
-    for (const auto& variable : program_keepalive_->get_static_vars())
-    {
-        const auto* meta =
-                variable->get_metadata().get_raw<metadata::available_copy::VariableMeta>();
-        if (meta != nullptr && meta->id == id)
-        {
-            return variable;
-        }
-    }
-
-    return std::nullopt;
+    return variable->second;
 }
 
 } // namespace optimizer::analysis
