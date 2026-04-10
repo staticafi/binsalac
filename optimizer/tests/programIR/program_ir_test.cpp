@@ -273,79 +273,79 @@ TEST_CASE("VariableIR assign helpers delegate to owners", "[VariableIR]")
 
 TEST_CASE("release_variable dispatches based on variable context", "[VariableIR]")
 {
-    auto program   = std::make_shared<ProgramIR>();
-    auto function  = std::make_shared<FunctionIR>();
-    auto staticVar = std::make_shared<VariableIR>();
-    auto localVar  = std::make_shared<VariableIR>();
-    auto paramVar  = std::make_shared<VariableIR>();
+    auto program    = std::make_shared<ProgramIR>();
+    auto function   = std::make_shared<FunctionIR>();
+    auto static_var = std::make_shared<VariableIR>();
+    auto local_var  = std::make_shared<VariableIR>();
+    auto param_var  = std::make_shared<VariableIR>();
 
-    program->acquire_static(staticVar);
-    function->acquire_local_variable(localVar);
-    function->acquire_parameter(paramVar);
+    program->acquire_static(static_var);
+    function->acquire_local_variable(local_var);
+    function->acquire_parameter(param_var);
 
-    release_variable(staticVar);
-    release_variable(localVar);
-    release_variable(paramVar);
+    release_variable(static_var);
+    release_variable(local_var);
+    release_variable(param_var);
 
     REQUIRE(list_size(program->get_static_vars()) == 0);
     REQUIRE(list_size(function->get_local_variables()) == 0);
     REQUIRE(list_size(function->get_parameters()) == 0);
 
-    REQUIRE(staticVar->get_context() == VariableIR::Context::UNDEFINED);
-    REQUIRE(staticVar->get_program() == nullptr);
-    REQUIRE(localVar->get_function() == nullptr);
-    REQUIRE(paramVar->get_function() == nullptr);
+    REQUIRE(static_var->get_context() == VariableIR::Context::UNDEFINED);
+    REQUIRE(static_var->get_program() == nullptr);
+    REQUIRE(local_var->get_function() == nullptr);
+    REQUIRE(param_var->get_function() == nullptr);
 }
 
 TEST_CASE("FunctionIR acquires and releases basic blocks", "[FunctionIR][BasicBlockIR]")
 {
-    auto function   = std::make_shared<FunctionIR>();
-    auto basicBlock = std::make_shared<BasicBlockIR>();
+    auto function    = std::make_shared<FunctionIR>();
+    auto basic_block = std::make_shared<BasicBlockIR>();
 
-    function->acquire_basic_block(basicBlock);
+    function->acquire_basic_block(basic_block);
 
-    REQUIRE(basicBlock->get_function() == function);
-    REQUIRE(basicBlock->get_function_raw() == function.get());
-    REQUIRE(basicBlock->get_self_it().has_value());
+    REQUIRE(basic_block->get_function() == function);
+    REQUIRE(basic_block->get_function_raw() == function.get());
+    REQUIRE(basic_block->get_self_it().has_value());
     REQUIRE(list_size(function->get_basic_blocks()) == 1);
-    REQUIRE((*basicBlock->get_self_it())->get() == basicBlock.get());
+    REQUIRE((*basic_block->get_self_it())->get() == basic_block.get());
 
-    function->release_basic_block(basicBlock);
+    function->release_basic_block(basic_block);
 
-    REQUIRE(basicBlock->get_function() == nullptr);
-    REQUIRE(basicBlock->get_function_raw() == nullptr);
-    REQUIRE_FALSE(basicBlock->get_self_it().has_value());
+    REQUIRE(basic_block->get_function() == nullptr);
+    REQUIRE(basic_block->get_function_raw() == nullptr);
+    REQUIRE_FALSE(basic_block->get_self_it().has_value());
     REQUIRE(list_size(function->get_basic_blocks()) == 0);
 }
 
 TEST_CASE("BasicBlockIR assign_to_function delegates to function acquisition",
           "[BasicBlockIR][FunctionIR]")
 {
-    auto function   = std::make_shared<FunctionIR>();
-    auto basicBlock = std::make_shared<BasicBlockIR>();
+    auto function    = std::make_shared<FunctionIR>();
+    auto basic_block = std::make_shared<BasicBlockIR>();
 
-    basicBlock->assign_to_function(function);
+    basic_block->assign_to_function(function);
 
-    REQUIRE(basicBlock->get_function() == function);
-    REQUIRE(basicBlock->get_self_it().has_value());
+    REQUIRE(basic_block->get_function() == function);
+    REQUIRE(basic_block->get_self_it().has_value());
     REQUIRE(list_size(function->get_basic_blocks()) == 1);
 }
 
 TEST_CASE("BasicBlockIR can move between functions", "[BasicBlockIR][FunctionIR]")
 {
-    auto function1  = std::make_shared<FunctionIR>();
-    auto function2  = std::make_shared<FunctionIR>();
-    auto basicBlock = std::make_shared<BasicBlockIR>();
+    auto function1   = std::make_shared<FunctionIR>();
+    auto function2   = std::make_shared<FunctionIR>();
+    auto basic_block = std::make_shared<BasicBlockIR>();
 
-    function1->acquire_basic_block(basicBlock);
+    function1->acquire_basic_block(basic_block);
     REQUIRE(list_size(function1->get_basic_blocks()) == 1);
 
-    function2->acquire_basic_block(basicBlock);
+    function2->acquire_basic_block(basic_block);
 
     REQUIRE(list_size(function1->get_basic_blocks()) == 0);
     REQUIRE(list_size(function2->get_basic_blocks()) == 1);
-    REQUIRE(basicBlock->get_function() == function2);
-    REQUIRE(basicBlock->get_function_raw() == function2.get());
+    REQUIRE(basic_block->get_function() == function2);
+    REQUIRE(basic_block->get_function_raw() == function2.get());
 }
 
 TEST_CASE("BasicBlockIR stores and removes predecessors and successors", "[BasicBlockIR]")
@@ -373,36 +373,36 @@ TEST_CASE("BasicBlockIR stores and removes predecessors and successors", "[Basic
 
 TEST_CASE("BasicBlockIR acquires and releases instructions", "[BasicBlockIR][InstructionIR]")
 {
-    auto basicBlock  = std::make_shared<BasicBlockIR>();
+    auto basic_block = std::make_shared<BasicBlockIR>();
     auto instruction = std::make_shared<InstructionIR>();
 
-    basicBlock->acquire_instruction(instruction);
+    basic_block->acquire_instruction(instruction);
 
-    REQUIRE(instruction->get_basic_block() == basicBlock);
-    REQUIRE(instruction->get_basic_block_raw() == basicBlock.get());
+    REQUIRE(instruction->get_basic_block() == basic_block);
+    REQUIRE(instruction->get_basic_block_raw() == basic_block.get());
     REQUIRE(instruction->get_self_it().has_value());
-    REQUIRE(list_size(basicBlock->get_instructions()) == 1);
+    REQUIRE(list_size(basic_block->get_instructions()) == 1);
     REQUIRE((*instruction->get_self_it())->get() == instruction.get());
 
-    basicBlock->release_instruction(instruction);
+    basic_block->release_instruction(instruction);
 
     REQUIRE(instruction->get_basic_block() == nullptr);
     REQUIRE(instruction->get_basic_block_raw() == nullptr);
     REQUIRE_FALSE(instruction->get_self_it().has_value());
-    REQUIRE(list_size(basicBlock->get_instructions()) == 0);
+    REQUIRE(list_size(basic_block->get_instructions()) == 0);
 }
 
 TEST_CASE("InstructionIR assign_to_basic_block delegates to block acquisition",
           "[InstructionIR][BasicBlockIR]")
 {
-    auto basicBlock  = std::make_shared<BasicBlockIR>();
+    auto basic_block = std::make_shared<BasicBlockIR>();
     auto instruction = std::make_shared<InstructionIR>();
 
-    instruction->assign_to_basic_block(basicBlock);
+    instruction->assign_to_basic_block(basic_block);
 
-    REQUIRE(instruction->get_basic_block() == basicBlock);
+    REQUIRE(instruction->get_basic_block() == basic_block);
     REQUIRE(instruction->get_self_it().has_value());
-    REQUIRE(list_size(basicBlock->get_instructions()) == 1);
+    REQUIRE(list_size(basic_block->get_instructions()) == 1);
 }
 
 TEST_CASE("InstructionIR can move between basic blocks", "[InstructionIR][BasicBlockIR]")
