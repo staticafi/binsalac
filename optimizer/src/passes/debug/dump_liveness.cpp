@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <ostream>
 #include <unordered_map>
 
@@ -30,7 +31,11 @@ constexpr int                     OFFSET_MULT = 2;
 
 struct Impl
 {
-    Impl(program::ProgramIR_sptr sala_ir) : sala_ir_{std::move(sala_ir)} { run(); }
+    Impl(program::ProgramIR_sptr sala_ir, std::filesystem::path output_path)
+        : sala_ir_{std::move(sala_ir)}, output_path_{std::move(output_path)}
+    {
+        run();
+    }
 
     program::ProgramIR_sptr run()
     {
@@ -38,11 +43,31 @@ struct Impl
 
         build_operand_display_ids();
 
-        const auto output_path =
-                std::filesystem::path(utils::get_program_name(*sala_ir_) + ".liveness_debug");
+        const auto default_filename = utils::get_program_name(*sala_ir_) + ".liveness_debug";
 
-        std::ofstream out(output_path, std::ios::out | std::ios::trunc);
-        ASSUMPTION(out.is_open());
+        std::filesystem::path resolved_output_path;
+
+        if (output_path_.empty())
+        {
+            resolved_output_path = default_filename;
+        }
+        else if (!output_path_.has_extension())
+        {
+            // treat as directory
+            resolved_output_path = output_path_ / default_filename;
+        }
+        else
+        {
+            // treat as full file path
+            resolved_output_path = output_path_;
+        }
+
+        std::ofstream out(resolved_output_path, std::ios::out | std::ios::trunc);
+        if (!out.is_open())
+        {
+            throw std::runtime_error("Failed to open output file: " +
+                                     resolved_output_path.string());
+        }
 
         out << "__CONSTANTS__\n [\n";
         for (const auto& constant : sala_ir_->get_constants())
@@ -322,7 +347,9 @@ struct Impl
     {
         out << "{";
         bool first = true;
-        for (const auto& operand : live_set)
+
+        const auto sorted = get_sorted_operands(live_set);
+        for (const auto& operand : sorted)
         {
             if (!first)
             {
@@ -331,6 +358,7 @@ struct Impl
             first = false;
             serialize_operand(out, operand, 0);
         }
+
         out << "} ";
     }
 
@@ -385,24 +413,76 @@ struct Impl
         }
     }
 
+    int get_operand_sort_key(const program::OperandIR_raw& operand) const
+    {
+        if (const auto* variable_raw = std::get_if<program::VariableIR_raw>(&operand))
+        {
+            ASSUMPTION(*variable_raw != nullptr);
+            const auto it = variable_ids_.find(*variable_raw);
+            return it != variable_ids_.end() ? it->second : std::numeric_limits<int>::max();
+        }
+
+        if (const auto* constant_raw = std::get_if<program::ConstantIR_raw>(&operand))
+        {
+            ASSUMPTION(*constant_raw != nullptr);
+            const auto it = constant_ids_.find(*constant_raw);
+            return it != constant_ids_.end() ? it->second : std::numeric_limits<int>::max();
+        }
+
+        if (const auto* function_raw = std::get_if<program::FunctionIR_raw>(&operand))
+        {
+            ASSUMPTION(*function_raw != nullptr);
+            return std::numeric_limits<int>::max() - 1;
+        }
+
+        ASSUMPTION(false);
+    }
+
+    std::vector<program::OperandIR_raw> get_sorted_operands(const utils::LiveSet& live_set) const
+    {
+        std::vector<program::OperandIR_raw> sorted(live_set.begin(), live_set.end());
+
+        std::sort(sorted.begin(), sorted.end(),
+                  [this](const program::OperandIR_raw& lhs, const program::OperandIR_raw& rhs)
+                  {
+                      const int lhs_key = get_operand_sort_key(lhs);
+                      const int rhs_key = get_operand_sort_key(rhs);
+
+                      if (lhs_key != rhs_key)
+                      {
+                          return lhs_key < rhs_key;
+                      }
+
+                      return lhs.index() < rhs.index();
+                  });
+
+        return sorted;
+    }
+
   private:
     std::unordered_map<program::BasicBlockIR_sptr, int> bb_id_map_;
 
     std::unordered_map<program::VariableIR_raw, int> variable_ids_;
     std::unordered_map<program::ConstantIR_raw, int> constant_ids_;
     int                                              next_display_id_{0};
+    std::filesystem::path                            output_path_;
 
     program::ProgramIR_sptr sala_ir_;
 };
 
 } // namespace
 
+void DumpLiveness::set_output_path(std::filesystem::path output_path)
+{
+    output_path_ = std::move(output_path);
+}
+
 void DumpLiveness::run(program::ProgramIR_sptr sala_ir)
 {
     ASSUMPTION(sala_ir != nullptr);
-    std::cout << "DLi: started" << std::endl;
-    const auto trigger = Impl(std::move(sala_ir));
-    std::cout << "DLi: done" << std::endl;
+    // std::cout << "DLi: started" << std::endl;
+    const auto trigger = Impl(std::move(sala_ir), output_path_);
+    // std::cout << "DLi: done" << std::endl;
 }
 
 } // namespace optimizer::passes

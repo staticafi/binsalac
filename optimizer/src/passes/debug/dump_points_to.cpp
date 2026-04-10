@@ -76,15 +76,39 @@ void dump_must_state(std::ostream& out, const utils::MayAnalysisState& state,
 
 struct Impl
 {
-    Impl(program::ProgramIR_sptr sala_ir) : sala_ir_{std::move(sala_ir)} { run(); }
+    Impl(program::ProgramIR_sptr sala_ir, std::filesystem::path output_path)
+        : sala_ir_{std::move(sala_ir)}, output_path_{std::move(output_path)}
+    {
+        run();
+    }
 
     program::ProgramIR_sptr run()
     {
-        const auto output_path =
-                std::filesystem::path(utils::get_program_name(*sala_ir_) + ".points_to_debug");
+        const auto default_filename = utils::get_program_name(*sala_ir_) + ".points_to_debug";
 
-        std::ofstream out(output_path, std::ios::out | std::ios::trunc);
-        ASSUMPTION(out.is_open());
+        std::filesystem::path resolved_output_path;
+
+        if (output_path_.empty())
+        {
+            resolved_output_path = default_filename;
+        }
+        else if (!output_path_.has_extension())
+        {
+            // treat as directory
+            resolved_output_path = output_path_ / default_filename;
+        }
+        else
+        {
+            // treat as full file path
+            resolved_output_path = output_path_;
+        }
+
+        std::ofstream out(resolved_output_path, std::ios::out | std::ios::trunc);
+        if (!out.is_open())
+        {
+            throw std::runtime_error("Failed to open output file: " +
+                                     resolved_output_path.string());
+        }
 
         out << "__CONSTANTS__\n [\n";
         for (const auto& constant : sala_ir_->get_constants())
@@ -321,15 +345,20 @@ struct Impl
 
   private:
     std::unordered_map<program::BasicBlockIR_sptr, int> bb_id_map_;
+    std::filesystem::path                               output_path_;
     program::ProgramIR_sptr                             sala_ir_;
 };
 
 } // namespace
 
+void DumpPointsTo::set_output_path(std::filesystem::path output_path)
+{
+    output_path_ = std::move(output_path);
+}
+
 void DumpPointsTo::run(program::ProgramIR_sptr sala_ir)
 {
     ASSUMPTION(sala_ir != nullptr);
-    const auto trigger = Impl(std::move(sala_ir));
+    const auto trigger = Impl(std::move(sala_ir), output_path_);
 }
-
 } // namespace optimizer::passes
