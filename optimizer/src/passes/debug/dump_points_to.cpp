@@ -159,9 +159,9 @@ struct Impl
             out << "__extern__ ";
         }
 
-        out << utils::get_function_name(*function) << ": \n";
+        out << utils::get_function_name(*function) << ":\n";
 
-        out << utils::get_offset(offset) << "__params__: \n";
+        out << utils::get_offset(offset) << "__params__:\n";
         out << utils::get_offset(offset) << "(\n";
         offset += OFFSET_MULT;
         for (const auto& param : function->get_parameters())
@@ -172,7 +172,7 @@ struct Impl
         offset -= OFFSET_MULT;
         out << utils::get_offset(offset) << ")\n";
 
-        out << utils::get_offset(offset) << "__locals__: \n";
+        out << utils::get_offset(offset) << "__locals__:\n";
         out << utils::get_offset(offset) << "[\n";
         offset += OFFSET_MULT;
         for (const auto& local : function->get_local_variables())
@@ -184,7 +184,7 @@ struct Impl
         out << utils::get_offset(offset) << "]\n";
 
         fill_bb_map(*function);
-        out << utils::get_offset(offset) << "__basic_blocks__: \n";
+        out << utils::get_offset(offset) << "__basic_blocks__:\n";
         out << utils::get_offset(offset) << "<\n";
         offset += OFFSET_MULT;
         for (const auto& basic_block : function->get_basic_blocks())
