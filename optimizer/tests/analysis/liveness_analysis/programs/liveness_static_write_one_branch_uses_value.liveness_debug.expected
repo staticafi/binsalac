@@ -1,0 +1,87 @@
+__CONSTANTS__
+ [
+  0
+  1
+  2
+  3
+  4
+  5
+ ]
+__STATIC__
+ [
+  6
+ ]
+__init__ __sala_static_initializer__:
+  __params__:
+  (
+  )
+  __locals__:
+  [
+  ]
+  __basic_blocks__:
+  <
+    __entry__
+    0:
+     >>LIVE_OUT: {} <<
+     >>REMOVABLE: {}<<
+    {
+      RET    >>QUERY: [removable=no, live_before={} , live_after={} ] <<
+    }
+    |_succ__:
+    |_pred__:
+
+  >
+
+__entry__ main:
+  __params__:
+  (
+  )
+  __locals__:
+  [
+    7
+    8
+  ]
+  __basic_blocks__:
+  <
+    __entry__
+    0:
+     >>LIVE_OUT: {7} <<
+     >>REMOVABLE: {}<<
+    {
+      COPY 7 1    >>QUERY: [removable=no, live_before={1, 4} , live_after={4, 7} , operands={op=0, kind=def, value=7, before=dead, after=live; op=1, kind=use, value=1, before=live, after=dead}] <<
+      COPY 8 4    >>QUERY: [removable=no, live_before={4, 7} , live_after={7, 8} , operands={op=0, kind=def, value=8, before=dead, after=live; op=1, kind=use, value=4, before=live, after=dead}] <<
+      BRANCH 8    >>QUERY: [removable=no, live_before={7, 8} , live_after={7} , operands={op=0, kind=use, value=8, before=live, after=dead}] <<
+    }
+    |_succ__: 1 2
+    |_pred__:
+
+    1:
+     >>LIVE_OUT: {} <<
+     >>REMOVABLE: {}<<
+    {
+      COPY 6 7    >>QUERY: [removable=no, live_before={7} , live_after={} , operands={op=0, kind=def, value=6, before=dead, after=dead; op=1, kind=use, value=7, before=live, after=dead}] <<
+      JUMP    >>QUERY: [removable=no, live_before={} , live_after={} ] <<
+    }
+    |_succ__: 3
+    |_pred__: 0
+
+    2:
+     >>LIVE_OUT: {} <<
+     >>REMOVABLE: {}<<
+    {
+      JUMP    >>QUERY: [removable=no, live_before={} , live_after={} ] <<
+    }
+    |_succ__: 3
+    |_pred__: 0
+
+    3:
+     >>LIVE_OUT: {} <<
+     >>REMOVABLE: {}<<
+    {
+      RET    >>QUERY: [removable=no, live_before={} , live_after={} ] <<
+    }
+    |_succ__:
+    |_pred__: 2 1
+
+  >
+

@@ -1,0 +1,55 @@
+{
+"magic": "sala",
+"version": "0.1",
+"system": "x86_64-pc-linux-gnu",
+"num_cpu_bits": 64,
+"name": "liveness_dead_copy",
+"entry_function": 1,
+"constants": [
+  "0000000000000000",
+  "0100000000000000",
+  "0200000000000000",
+  "00",
+  "01"
+],
+"static": [
+],
+"functions": [
+  {
+    "name": [ "__sala_static_initializer__", [0,0] ],
+    "parameters": [
+    ],
+    "locals": [
+    ],
+    "basic_blocks": [
+      {
+        "instructions": [
+          [ "RET", "n", [0,0] ]
+        ],
+        "successors": [ ]
+      }
+    ]
+  },
+  {
+    "name": [ "main", [0,0] ],
+    "parameters": [
+    ],
+    "locals": [
+      [ 8, [0,0] ]
+    ],
+    "basic_blocks": [
+      {
+        "instructions": [
+          [ "COPY", "n", "lc", 0, 1, [0,0] ],
+          [ "RET", "n", [0,0] ]
+        ],
+        "successors": [ ]
+      }
+    ]
+  }
+],
+"external_variables": [
+],
+"external_functions": [
+]
+}
