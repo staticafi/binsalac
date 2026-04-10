@@ -11,7 +11,7 @@
 #include <optimizer/utils/sparse_set.hpp>
 
 #include <optimizer/utils/common.hpp>
-#include <unordered_map>
+#include <span>
 #include <utility/invariants.hpp>
 
 namespace optimizer::utils::points_to
@@ -79,8 +79,8 @@ void dump_may_set(const MayAnalysisState& state);
 void dump_must_set(const MayState& must_in);
 void dump_must_set(const MayAnalysisState& state);
 
-void handle_call_boundary(objectId source, const MayTransferContextBundle& context,
-                          bool unmodifiable_constants);
+void handle_call_boundary(std::span<const objectId>       escaped_args,
+                          const MayTransferContextBundle& context, bool unmodifiable_constants);
 
 std::size_t get_relevant_operands_count(const program::InstructionIR& instruction);
 

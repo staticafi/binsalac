@@ -4,9 +4,163 @@
 #include <iostream>
 #include <queue>
 #include <set>
+#include <span>
 
 namespace optimizer::utils::points_to
 {
+
+namespace
+{
+bool is_modifiable_target_for_call_boundary(const objectId                  id,
+                                            const MayTransferContextBundle& context,
+                                            const bool                      unmodifiable_constants)
+{
+    if (id == grouped_objects::OUT_OF_LOCAL_SCOPE)
+    {
+        return false;
+    }
+
+    if (!is_reachable_state_target(id))
+    {
+        return false;
+    }
+
+    if (unmodifiable_constants && is_constant_object(context.global_objects, id))
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool is_observable_pointer_for_call_boundary(const objectId id)
+{
+    return id != grouped_objects::OUT_OF_LOCAL_SCOPE;
+}
+
+MayValue build_observable_payload_for_call_boundary(const std::span<const objectId> escaped_args,
+                                                    const MayTransferContextBundle& context)
+{
+    MayValue observable_payload = make_singleton(grouped_objects::OUT_OF_LOCAL_SCOPE, false);
+
+    utils::SparseSet<objectId> observable_seen;
+    std::queue<objectId>       observable_wl;
+
+    for (const objectId escapee : escaped_args)
+    {
+        if (observable_seen.insert(escapee).second)
+        {
+            observable_wl.push(escapee);
+        }
+    }
+
+    while (!observable_wl.empty())
+    {
+        const objectId current = observable_wl.front();
+        observable_wl.pop();
+
+        if (is_observable_pointer_for_call_boundary(current))
+        {
+            observable_payload.insert(Target{current, false});
+        }
+
+        const auto it = context.state.may.find(current);
+        if (it == context.state.may.end() || it->second.is_top)
+        {
+            continue;
+        }
+
+        for (const auto& next : it->second)
+        {
+            if (!is_observable_pointer_for_call_boundary(next.id))
+            {
+                continue;
+            }
+
+            observable_payload.insert(next);
+
+            if (observable_seen.insert(next.id).second)
+            {
+                observable_wl.push(next.id);
+            }
+        }
+    }
+
+    return observable_payload;
+}
+
+std::vector<objectId>
+collect_modifiable_cells_for_call_boundary(const std::span<const objectId> escaped_args,
+                                           const MayTransferContextBundle& context,
+                                           const bool                      unmodifiable_constants)
+{
+    utils::SparseSet<objectId> mod_seen;
+    std::queue<objectId>       mod_wl;
+    std::vector<objectId>      mod_cells;
+
+    for (const objectId escapee : escaped_args)
+    {
+        const auto it = context.state.may.find(escapee);
+        if (it == context.state.may.end() || it->second.is_top)
+        {
+            continue;
+        }
+
+        for (const auto& tgt : it->second)
+        {
+            if (is_modifiable_target_for_call_boundary(tgt.id, context, unmodifiable_constants) &&
+                mod_seen.insert(tgt.id).second)
+            {
+                mod_wl.push(tgt.id);
+            }
+        }
+    }
+
+    while (!mod_wl.empty())
+    {
+        const objectId current = mod_wl.front();
+        mod_wl.pop();
+
+        mod_cells.push_back(current);
+
+        const auto it = context.state.may.find(current);
+        if (it == context.state.may.end() || it->second.is_top)
+        {
+            continue;
+        }
+
+        for (const auto& next : it->second)
+        {
+            if (is_modifiable_target_for_call_boundary(next.id, context, unmodifiable_constants) &&
+                mod_seen.insert(next.id).second)
+            {
+                mod_wl.push(next.id);
+            }
+        }
+    }
+
+    return mod_cells;
+}
+
+void apply_observable_payload_to_modifiable_cells(const std::vector<objectId>& mod_cells,
+                                                  const MayValue&              observable_payload,
+                                                  const MayTransferContextBundle& context)
+{
+    for (const objectId id : mod_cells)
+    {
+        auto it = context.state.may.find(id);
+        if (it == context.state.may.end())
+        {
+            context.state.may.emplace(id, observable_payload);
+        }
+        else if (!it->second.is_top)
+        {
+            it->second.join_with(observable_payload);
+        }
+    }
+}
+
+} // namespace
 
 bool is_constant_object(const ObjectPool& globals, const objectId id) noexcept
 {
@@ -217,140 +371,23 @@ void dump_must_set(const MayAnalysisState& state)
 
     dump_must_set(state.may);
 }
-void handle_call_boundary(const objectId escapee, const MayTransferContextBundle& context,
-                          const bool unmodifiable_constants)
+
+void handle_call_boundary(const std::span<const objectId> escaped_args,
+                          const MayTransferContextBundle& context,
+                          const bool                      unmodifiable_constants)
 {
     if (context.state.poisoned)
     {
         return;
     }
 
-    const auto escapee_may_iter = context.state.may.find(escapee);
-    if (escapee_may_iter == context.state.may.end())
-    {
-        return;
-    }
+    const MayValue observable_payload =
+            build_observable_payload_for_call_boundary(escaped_args, context);
 
-    if (escapee_may_iter->second.is_top)
-    {
-        return;
-    }
+    const std::vector<objectId> mod_cells = collect_modifiable_cells_for_call_boundary(
+            escaped_args, context, unmodifiable_constants);
 
-    utils::SparseSet<objectId> reachable;
-    utils::SparseSet<objectId> seen;
-    std::queue<objectId>       wl;
-
-    // first indirection (we cannot modify values of these)
-    for (const auto& target : escapee_may_iter->second)
-    {
-        if (!is_reachable_state_target(target.id))
-        {
-            continue;
-        }
-
-        if (unmodifiable_constants && is_constant_object(context.global_objects, target.id))
-        {
-            continue;
-        }
-
-        if (seen.insert(target.id).second)
-        {
-            wl.push(target.id);
-        }
-    }
-
-    while (wl.empty())
-    {
-        const auto reachable_current = wl.front();
-        wl.pop();
-
-        if (is_reachable_state_target(reachable_current))
-        {
-            reachable.insert(reachable_current);
-        }
-    }
-}
-
-void handle_call_boundary_s(const objectId source, const MayTransferContextBundle& context,
-                            const bool unmodifiable_constants)
-{
-    if (context.state.poisoned)
-    {
-        return;
-    }
-
-    const auto source_may_iter = context.state.may.find(source);
-    if (source_may_iter == context.state.may.end())
-    {
-        return;
-    }
-
-    if (source_may_iter->second.is_top)
-    {
-        return;
-    }
-
-    std::set<objectId>   seen;
-    std::queue<objectId> wl;
-
-    // first indirection
-    for (const auto& target : source_may_iter->second)
-    {
-        if (!is_reachable_state_target(target.id))
-        {
-            continue;
-        }
-
-        if (unmodifiable_constants && is_constant_object(context.global_objects, target.id))
-        {
-            continue;
-        }
-
-        if (seen.insert(target.id).second)
-        {
-            wl.push(target.id);
-        }
-    }
-
-    // TODO: Improve precision with OUT_OF_LOCAL_SCOPE (and all the other reachables )
-    while (!wl.empty())
-    {
-        const auto current_id = wl.front();
-        wl.pop();
-
-        auto current_may_iter = context.state.may.find(current_id);
-
-        if (current_may_iter != context.state.may.end() && !current_may_iter->second.is_top)
-        {
-            const auto current_copy = current_may_iter->second;
-
-            for (const auto& target : current_copy)
-            {
-                if (!is_reachable_state_target(target.id))
-                {
-                    continue;
-                }
-
-                if (unmodifiable_constants && is_constant_object(context.global_objects, target.id))
-                {
-                    continue;
-                }
-
-                if (seen.insert(target.id).second)
-                {
-                    wl.push(target.id);
-                }
-            }
-
-            // TODO : set to
-            current_may_iter->second.insert(
-                    Target{.id = grouped_objects::OUT_OF_LOCAL_SCOPE, .offset_flag = false});
-        }
-        else if (current_may_iter != context.state.may.end())
-        {
-            current_may_iter->second.make_top();
-        }
-    }
+    apply_observable_payload_to_modifiable_cells(mod_cells, observable_payload, context);
 }
 
 std::size_t get_relevant_operands_count(const program::InstructionIR& instruction)

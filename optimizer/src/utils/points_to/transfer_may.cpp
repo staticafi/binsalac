@@ -1,6 +1,7 @@
 #include <optimizer/utils/points_to/transfer_may.hpp>
 
 #include <iostream>
+#include <span>
 #include <utility/assumptions.hpp>
 
 namespace optimizer::utils::points_to
@@ -563,13 +564,11 @@ void apply_transfer_may_memset(const MayTransferContextBundle& context)
 
 void apply_transfer_may_call(const MayTransferContextBundle& context)
 {
-    for (std::size_t i = 1; i < context.operands_count; ++i)
-    {
-        // TODO:
-        // set_reachable_to_top(context.operands_id[i], context,
-        // grouped_objects::OUT_OF_LOCAL_SCOPE);
-        handle_call_boundary(context.operands_id[i], context, true);
-    }
+    std::span<const objectId> escapees =
+            context.operands_id.size() > 1
+                    ? std::span<const objectId>(context.operands_id).subspan(1)
+                    : std::span<const objectId>{};
+    handle_call_boundary(escapees, context, false);
 }
 
 void apply_transfer_may_stacksave(const MayTransferContextBundle& context)
