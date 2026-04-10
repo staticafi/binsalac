@@ -1,0 +1,70 @@
+__CONSTANTS__
+ [
+ ]
+__STATIC__
+ [
+ ]
+__init__ __sala_static_initializer__:
+  __params__:
+  (
+  )
+  __locals__:
+  [
+  ]
+  __basic_blocks__:
+  <
+    __entry__
+    0:
+     >>LIVE_OUT: {} <<
+     >>REMOVABLE: {}<<
+    {
+      RET    >>QUERY: [removable=no, live_before={} , live_after={} ] <<
+    }
+    |_succ__:
+    |_pred__:
+
+  >
+
+__entry__ main:
+  __params__:
+  (
+  )
+  __locals__:
+  [
+  ]
+  __basic_blocks__:
+  <
+    __entry__
+    0:
+     >>LIVE_OUT: {} <<
+     >>REMOVABLE: {}<<
+    {
+      CALL callee    >>QUERY: [removable=no, live_before={} , live_after={} ] <<
+      RET    >>QUERY: [removable=no, live_before={} , live_after={} ] <<
+    }
+    |_succ__:
+    |_pred__:
+
+  >
+
+callee:
+  __params__:
+  (
+  )
+  __locals__:
+  [
+  ]
+  __basic_blocks__:
+  <
+    __entry__
+    0:
+     >>LIVE_OUT: {} <<
+     >>REMOVABLE: {}<<
+    {
+      RET    >>QUERY: [removable=no, live_before={} , live_after={} ] <<
+    }
+    |_succ__:
+    |_pred__:
+
+  >
+
