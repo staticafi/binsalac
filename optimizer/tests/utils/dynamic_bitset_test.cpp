@@ -22,18 +22,23 @@ TEST_CASE("DynamicBitset sized constructor creates zeroed storage", "[DynamicBit
     DynamicBitset bitset(0);
     REQUIRE(bitset.words().empty());
 
-    DynamicBitset oneWord(1);
-    REQUIRE(oneWord.words().size() == 1);
-    REQUIRE(oneWord.words()[0] == 0ULL);
+    {
+        DynamicBitset one_word(1);
+        REQUIRE(one_word.words().size() == 1);
+        REQUIRE(one_word.words()[0] == 0ULL);
+    }
+    {
+        DynamicBitset one_word(64);
+        REQUIRE(one_word.words().size() == 1);
+        REQUIRE(one_word.words()[0] == 0ULL);
+    }
 
-    DynamicBitset alsoOneWord(64);
-    REQUIRE(alsoOneWord.words().size() == 1);
-    REQUIRE(alsoOneWord.words()[0] == 0ULL);
-
-    DynamicBitset twoWords(65);
-    REQUIRE(twoWords.words().size() == 2);
-    REQUIRE(twoWords.words()[0] == 0ULL);
-    REQUIRE(twoWords.words()[1] == 0ULL);
+    {
+        DynamicBitset two_words(65);
+        REQUIRE(two_words.words().size() == 2);
+        REQUIRE(two_words.words()[0] == 0ULL);
+        REQUIRE(two_words.words()[1] == 0ULL);
+    }
 }
 
 TEST_CASE("DynamicBitset resize resets contents and adjusts number of words", "[DynamicBitset]")
