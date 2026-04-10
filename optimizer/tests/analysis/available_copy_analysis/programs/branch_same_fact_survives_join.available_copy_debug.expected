@@ -1,0 +1,88 @@
+__CONSTANTS__
+ [
+  CONST
+  CONST
+  CONST
+  CONST
+ ]
+__STATIC__
+ [
+ ]
+__init__ __sala_static_initializer__:
+  __params__:
+  (
+  )
+  __locals__:
+  [
+  ]
+  __available_copy_function_meta__:
+   facts: []
+   facts_by_dest: []
+  __basic_blocks__:
+  <
+    __entry__
+    0:
+     >>IN_BITS: <<
+    {
+      RET
+    }
+    |_succ__:
+    |_pred__:
+
+  >
+
+__entry__ main:
+  __params__:
+  (
+  )
+  __locals__:
+  [
+    0
+    1
+    2
+    3
+  ]
+  __available_copy_function_meta__:
+   facts: [#0 (0 <- 1)0 = 1]
+   facts_by_dest: [0 -> {0}; 1 -> {}; 2 -> {}; 3 -> {}]
+  __basic_blocks__:
+  <
+    __entry__
+    0:
+     >>IN_BITS: 0 <<
+    {
+      COPY 2 CONST
+      BRANCH 2
+    }
+    |_succ__: 1 2
+    |_pred__:
+
+    1:
+     >>IN_BITS: 0 <<
+    {
+      COPY 0 1
+      JUMP
+    }
+    |_succ__: 3
+    |_pred__: 0
+
+    2:
+     >>IN_BITS: 0 <<
+    {
+      COPY 0 1
+      JUMP
+    }
+    |_succ__: 3
+    |_pred__: 0
+
+    3:
+     >>IN_BITS: 1 <<
+    {
+      COPY 3 0    >>QUERY: [op=1, direct=1, transitive=1, chain={0 -> 1}] <<
+      RET
+    }
+    |_succ__:
+    |_pred__: 2 1
+
+  >
+
