@@ -3,3 +3,4 @@ project(analysis_tests)
 
 add_subdirectory(points_to_analysis)
 add_subdirectory(liveness_analysis)
+add_subdirectory(available_copy_analysis)

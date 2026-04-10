@@ -1,0 +1,53 @@
+{
+"magic": "sala",
+"version": "0.1",
+"system": "x86_64-pc-linux-gnu",
+"num_cpu_bits": 64,
+"name": "static_parameter_local_copy_universe",
+"entry_function": 1,
+"constants": [
+],
+"static": [
+  [ 8, [0,0] ]
+],
+"functions": [
+  {
+    "name": [ "__sala_static_initializer__", [0,0] ],
+    "parameters": [
+    ],
+    "locals": [
+    ],
+    "basic_blocks": [
+      {
+        "instructions": [
+          [ "RET", "n", [0,0] ]
+        ],
+        "successors": [ ]
+      }
+    ]
+  },
+  {
+    "name": [ "main", [0,0] ],
+    "parameters": [
+      [ 8, [0,0] ]
+    ],
+    "locals": [
+      [ 8, [0,0] ]
+    ],
+    "basic_blocks": [
+      {
+        "instructions": [
+          [ "COPY", "n", "lp", 0, 0, [0,0] ],
+          [ "COPY", "n", "sl", 0, 0, [0,0] ],
+          [ "RET", "n", [0,0] ]
+        ],
+        "successors": [ ]
+      }
+    ]
+  }
+],
+"external_variables": [
+],
+"external_functions": [
+]
+}
