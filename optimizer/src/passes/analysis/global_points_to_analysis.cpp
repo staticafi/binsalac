@@ -75,7 +75,6 @@ class Impl
         assign_object_ids_variables(static_init_->get_local_variables(), local_objects_,
                                     utils::RegionTag::Local);
 
-        ASSUMPTION(id > 0);
         last_local_id_ = id - 1;
         NB_            = static_init_->get_basic_blocks().size();
     }
