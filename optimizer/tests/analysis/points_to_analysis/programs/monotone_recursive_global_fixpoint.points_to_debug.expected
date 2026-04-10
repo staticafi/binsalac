@@ -1,0 +1,143 @@
+__CONSTANTS__
+ [
+  0
+ ]
+__STATIC__
+ [
+  1
+  2
+ ]
+__init__ __sala_static_initializer__:
+  __params__:
+  (
+  )
+  __locals__:
+  [
+  ]
+  __basic_blocks__:
+  <
+    __entry__
+    0:
+     >>BB-IN MAY: <<
+     >>BB-IN MUST: <<
+    {
+       >>BEFORE MAY: <<
+       >>BEFORE MUST: <<
+      RET
+       >>AFTER MAY: <<
+       >>AFTER MUST: <<
+    }
+    |_succ__:
+    |_pred__:
+
+  >
+
+__entry__ main:
+  __params__:
+  (
+  )
+  __locals__:
+  [
+  ]
+  __basic_blocks__:
+  <
+    __entry__
+    0:
+     >>BB-IN MAY: 1 = { 2 }; <<
+     >>BB-IN MUST: 1 -> 2; <<
+    {
+       >>BEFORE MAY: 1 = { 2 }; <<
+       >>BEFORE MUST: 1 -> 2; <<
+      CALL -5=recur
+       >>AFTER MAY: 1 = { 2 }; <<
+       >>AFTER MUST: 1 -> 2; <<
+       >>BEFORE MAY: 1 = { 2 }; <<
+       >>BEFORE MUST: 1 -> 2; <<
+      RET
+       >>AFTER MAY: 1 = { 2 }; <<
+       >>AFTER MUST: 1 -> 2; <<
+    }
+    |_succ__:
+    |_pred__:
+
+  >
+
+recur:
+  __params__:
+  (
+  )
+  __locals__:
+  [
+    3
+    4
+    5
+  ]
+  __basic_blocks__:
+  <
+    __entry__
+    0:
+     >>BB-IN MAY: 1 = { 2 }; <<
+     >>BB-IN MUST: 1 -> 2; <<
+    {
+       >>BEFORE MAY: 1 = { 2 }; <<
+       >>BEFORE MUST: 1 -> 2; <<
+      ADDRESS 3 1
+       >>AFTER MAY: 1 = { 2 }; 3 = { 1 }; <<
+       >>AFTER MUST: 1 -> 2; 3 -> 1; <<
+       >>BEFORE MAY: 1 = { 2 }; 3 = { 1 }; <<
+       >>BEFORE MUST: 1 -> 2; 3 -> 1; <<
+      ADDRESS 4 2
+       >>AFTER MAY: 1 = { 2 }; 3 = { 1 }; 4 = { 2 }; <<
+       >>AFTER MUST: 1 -> 2; 3 -> 1; 4 -> 2; <<
+       >>BEFORE MAY: 1 = { 2 }; 3 = { 1 }; 4 = { 2 }; <<
+       >>BEFORE MUST: 1 -> 2; 3 -> 1; 4 -> 2; <<
+      STORE 3 4
+       >>AFTER MAY: 1 = { 2 }; 3 = { 1 }; 4 = { 2 }; <<
+       >>AFTER MUST: 1 -> 2; 3 -> 1; 4 -> 2; <<
+       >>BEFORE MAY: 1 = { 2 }; 3 = { 1 }; 4 = { 2 }; <<
+       >>BEFORE MUST: 1 -> 2; 3 -> 1; 4 -> 2; <<
+      COPY 5 0
+       >>AFTER MAY: 1 = { 2 }; 3 = { 1 }; 4 = { 2 }; <<
+       >>AFTER MUST: 1 -> 2; 3 -> 1; 4 -> 2; <<
+       >>BEFORE MAY: 1 = { 2 }; 3 = { 1 }; 4 = { 2 }; <<
+       >>BEFORE MUST: 1 -> 2; 3 -> 1; 4 -> 2; <<
+      BRANCH 5
+       >>AFTER MAY: 1 = { 2 }; 3 = { 1 }; 4 = { 2 }; <<
+       >>AFTER MUST: 1 -> 2; 3 -> 1; 4 -> 2; <<
+    }
+    |_succ__: 1 2
+    |_pred__:
+
+    1:
+     >>BB-IN MAY: 1 = { 2 }; 3 = { 1 }; 4 = { 2 }; <<
+     >>BB-IN MUST: 1 -> 2; 3 -> 1; 4 -> 2; <<
+    {
+       >>BEFORE MAY: 1 = { 2 }; 3 = { 1 }; 4 = { 2 }; <<
+       >>BEFORE MUST: 1 -> 2; 3 -> 1; 4 -> 2; <<
+      CALL -5=recur
+       >>AFTER MAY: 1 = { 2 }; 3 = { 1 }; 4 = { 2 }; <<
+       >>AFTER MUST: 1 -> 2; 3 -> 1; 4 -> 2; <<
+       >>BEFORE MAY: 1 = { 2 }; 3 = { 1 }; 4 = { 2 }; <<
+       >>BEFORE MUST: 1 -> 2; 3 -> 1; 4 -> 2; <<
+      RET
+       >>AFTER MAY: 1 = { 2 }; 3 = { 1 }; 4 = { 2 }; <<
+       >>AFTER MUST: 1 -> 2; 3 -> 1; 4 -> 2; <<
+    }
+    |_succ__:
+    |_pred__: 0
+
+    2:
+     >>BB-IN MAY: 1 = { 2 }; 3 = { 1 }; 4 = { 2 }; <<
+     >>BB-IN MUST: 1 -> 2; 3 -> 1; 4 -> 2; <<
+    {
+       >>BEFORE MAY: 1 = { 2 }; 3 = { 1 }; 4 = { 2 }; <<
+       >>BEFORE MUST: 1 -> 2; 3 -> 1; 4 -> 2; <<
+      RET
+       >>AFTER MAY: 1 = { 2 }; 3 = { 1 }; 4 = { 2 }; <<
+       >>AFTER MUST: 1 -> 2; 3 -> 1; 4 -> 2; <<
+    }
+    |_succ__:
+    |_pred__: 0
+
+  >
+

@@ -1,0 +1,80 @@
+{
+"magic": "sala",
+"version": "0.1",
+"system": "x86_64-pc-linux-gnu",
+"num_cpu_bits": 64,
+"name": "monotone_branch_store_to_static",
+"entry_function": 1,
+"constants": [
+  "00"
+],
+"static": [
+  [ 8, [0,0] ],
+  [ 8, [0,0] ],
+  [ 8, [0,0] ]
+],
+"functions": [
+  {
+    "name": [ "__sala_static_initializer__", [0,0] ],
+    "parameters": [
+    ],
+    "locals": [
+    ],
+    "basic_blocks": [
+      {
+        "instructions": [
+          [ "RET", "n", [0,0] ]
+        ],
+        "successors": [ ]
+      }
+    ]
+  },
+  {
+    "name": [ "main", [0,0] ],
+    "parameters": [
+    ],
+    "locals": [
+      [ 8, [0,0] ],
+      [ 8, [0,0] ],
+      [ 8, [0,0] ],
+      [ 1, [0,0] ]
+    ],
+    "basic_blocks": [
+      {
+        "instructions": [
+          [ "ADDRESS", "n", "ls", 0, 0, [0,0] ],
+          [ "ADDRESS", "n", "ls", 1, 1, [0,0] ],
+          [ "ADDRESS", "n", "ls", 2, 2, [0,0] ],
+          [ "COPY", "n", "lc", 3, 0, [0,0] ],
+          [ "BRANCH", "n", "l", 3, [0,0] ]
+        ],
+        "successors": [ 1, 2 ]
+      },
+      {
+        "instructions": [
+          [ "STORE", "n", "ll", 0, 1, [0,0] ],
+          [ "JUMP", "n", [0,0] ]
+        ],
+        "successors": [ 3 ]
+      },
+      {
+        "instructions": [
+          [ "STORE", "n", "ll", 0, 2, [0,0] ],
+          [ "JUMP", "n", [0,0] ]
+        ],
+        "successors": [ 3 ]
+      },
+      {
+        "instructions": [
+          [ "RET", "n", [0,0] ]
+        ],
+        "successors": [ ]
+      }
+    ]
+  }
+],
+"external_variables": [
+],
+"external_functions": [
+]
+}
