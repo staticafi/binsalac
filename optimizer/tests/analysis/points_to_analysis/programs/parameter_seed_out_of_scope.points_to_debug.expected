@@ -1,0 +1,63 @@
+__CONSTANTS__
+ [
+ ]
+__STATIC__
+ [
+ ]
+__init__ __sala_static_initializer__:
+  __params__:
+  (
+  )
+  __locals__:
+  [
+  ]
+  __basic_blocks__:
+  <
+    __entry__
+    0:
+     >>BB-IN MAY: <<
+     >>BB-IN MUST: <<
+    {
+       >>BEFORE MAY: <<
+       >>BEFORE MUST: <<
+      RET
+       >>AFTER MAY: <<
+       >>AFTER MUST: <<
+    }
+    |_succ__:
+    |_pred__:
+
+  >
+
+__entry__ main:
+  __params__:
+  (
+    0
+  )
+  __locals__:
+  [
+    1
+  ]
+  __basic_blocks__:
+  <
+    __entry__
+    0:
+     >>BB-IN MAY: 0 = { -3 }; <<
+     >>BB-IN MUST: <<
+    {
+       >>BEFORE MAY: 0 = { -3 }; <<
+       >>BEFORE MUST: <<
+      COPY 1 0
+       >>AFTER MAY: 0 = { -3 }; 1 = { -3 }; <<
+       >>AFTER MUST: <<
+       >>BEFORE MAY: 0 = { -3 }; 1 = { -3 }; <<
+       >>BEFORE MUST: <<
+      RET
+       >>AFTER MAY: 0 = { -3 }; 1 = { -3 }; <<
+       >>AFTER MUST: <<
+    }
+    |_succ__:
+    |_pred__:
+
+  >
+
