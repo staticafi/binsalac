@@ -1,0 +1,121 @@
+__CONSTANTS__
+ [
+  0
+  1
+ ]
+__STATIC__
+ [
+ ]
+__init__ __sala_static_initializer__:
+  __params__:
+  (
+  )
+  __locals__:
+  [
+  ]
+  __basic_blocks__:
+  <
+    __entry__
+    0:
+     >>BB-IN MAY: <<
+     >>BB-IN MUST: <<
+    {
+       >>BEFORE MAY: <<
+       >>BEFORE MUST: <<
+      RET
+       >>AFTER MAY: <<
+       >>AFTER MUST: <<
+    }
+    |_succ__:
+    |_pred__:
+
+  >
+
+__entry__ main:
+  __params__:
+  (
+  )
+  __locals__:
+  [
+    2
+    3
+    4
+    5
+  ]
+  __basic_blocks__:
+  <
+    __entry__
+    0:
+     >>BB-IN MAY: <<
+     >>BB-IN MUST: <<
+    {
+       >>BEFORE MAY: <<
+       >>BEFORE MUST: <<
+      COPY 5 0
+       >>AFTER MAY: <<
+       >>AFTER MUST: <<
+       >>BEFORE MAY: <<
+       >>BEFORE MUST: <<
+      BRANCH 5
+       >>AFTER MAY: <<
+       >>AFTER MUST: <<
+    }
+    |_succ__: 1 2
+    |_pred__:
+
+    1:
+     >>BB-IN MAY: <<
+     >>BB-IN MUST: <<
+    {
+       >>BEFORE MAY: <<
+       >>BEFORE MUST: <<
+      MALLOC 2
+       >>AFTER MAY: 2 = { -8 }; <<
+       >>AFTER MUST: <<
+       >>BEFORE MAY: 2 = { -8 }; <<
+       >>BEFORE MUST: <<
+      MOVEPTR 3 2 0 1
+       >>AFTER MAY: 2 = { -8 }; 3 = { -8, -8off }; <<
+       >>AFTER MUST: <<
+       >>BEFORE MAY: 2 = { -8 }; 3 = { -8, -8off }; <<
+       >>BEFORE MUST: <<
+      JUMP
+       >>AFTER MAY: 2 = { -8 }; 3 = { -8, -8off }; <<
+       >>AFTER MUST: <<
+    }
+    |_succ__: 3
+    |_pred__: 0
+
+    2:
+     >>BB-IN MAY: <<
+     >>BB-IN MUST: <<
+    {
+       >>BEFORE MAY: <<
+       >>BEFORE MUST: <<
+      JUMP
+       >>AFTER MAY: <<
+       >>AFTER MUST: <<
+    }
+    |_succ__: 3
+    |_pred__: 0
+
+    3:
+     >>BB-IN MAY: 2 = { -8, MERGE_UNKNOWN }; 3 = { -8, -8off, MERGE_UNKNOWN }; <<
+     >>BB-IN MUST: <<
+    {
+       >>BEFORE MAY: 2 = { -8, MERGE_UNKNOWN }; 3 = { -8, -8off, MERGE_UNKNOWN }; <<
+       >>BEFORE MUST: <<
+      LOAD 4 3
+       >>AFTER MAY: 2 = { -8, MERGE_UNKNOWN }; 3 = { -8, -8off, MERGE_UNKNOWN }; 4 = { -8 }; <<
+       >>AFTER MUST: <<
+       >>BEFORE MAY: 2 = { -8, MERGE_UNKNOWN }; 3 = { -8, -8off, MERGE_UNKNOWN }; 4 = { -8 }; <<
+       >>BEFORE MUST: <<
+      RET
+       >>AFTER MAY: 2 = { -8, MERGE_UNKNOWN }; 3 = { -8, -8off, MERGE_UNKNOWN }; 4 = { -8 }; <<
+       >>AFTER MUST: <<
+    }
+    |_succ__:
+    |_pred__: 2 1
+
+  >
+

@@ -1,0 +1,100 @@
+__CONSTANTS__
+ [
+ ]
+__STATIC__
+ [
+  0
+  1
+  2
+ ]
+__init__ __sala_static_initializer__:
+  __params__:
+  (
+  )
+  __locals__:
+  [
+  ]
+  __basic_blocks__:
+  <
+    __entry__
+    0:
+     >>BB-IN MAY: 0 = { 1 }; 1 = { 2 }; 2 = { 0 }; <<
+     >>BB-IN MUST: 0 -> 1; 1 -> 2; 2 -> 0; <<
+    {
+       >>BEFORE MAY: 0 = { 1 }; 1 = { 2 }; 2 = { 0 }; <<
+       >>BEFORE MUST: 0 -> 1; 1 -> 2; 2 -> 0; <<
+      ADDRESS 0 1
+       >>AFTER MAY: 0 = { 1 }; 1 = { 2 }; 2 = { 0 }; <<
+       >>AFTER MUST: 0 -> 1; 1 -> 2; 2 -> 0; <<
+       >>BEFORE MAY: 0 = { 1 }; 1 = { 2 }; 2 = { 0 }; <<
+       >>BEFORE MUST: 0 -> 1; 1 -> 2; 2 -> 0; <<
+      JUMP
+       >>AFTER MAY: 0 = { 1 }; 1 = { 2 }; 2 = { 0 }; <<
+       >>AFTER MUST: 0 -> 1; 1 -> 2; 2 -> 0; <<
+    }
+    |_succ__: 1
+    |_pred__: 2
+
+    1:
+     >>BB-IN MAY: 0 = { 1 }; 1 = { 2 }; 2 = { 0 }; <<
+     >>BB-IN MUST: 0 -> 1; 1 -> 2; 2 -> 0; <<
+    {
+       >>BEFORE MAY: 0 = { 1 }; 1 = { 2 }; 2 = { 0 }; <<
+       >>BEFORE MUST: 0 -> 1; 1 -> 2; 2 -> 0; <<
+      ADDRESS 1 2
+       >>AFTER MAY: 0 = { 1 }; 1 = { 2 }; 2 = { 0 }; <<
+       >>AFTER MUST: 0 -> 1; 1 -> 2; 2 -> 0; <<
+       >>BEFORE MAY: 0 = { 1 }; 1 = { 2 }; 2 = { 0 }; <<
+       >>BEFORE MUST: 0 -> 1; 1 -> 2; 2 -> 0; <<
+      JUMP
+       >>AFTER MAY: 0 = { 1 }; 1 = { 2 }; 2 = { 0 }; <<
+       >>AFTER MUST: 0 -> 1; 1 -> 2; 2 -> 0; <<
+    }
+    |_succ__: 2
+    |_pred__: 0
+
+    2:
+     >>BB-IN MAY: 0 = { 1 }; 1 = { 2 }; 2 = { 0 }; <<
+     >>BB-IN MUST: 0 -> 1; 1 -> 2; 2 -> 0; <<
+    {
+       >>BEFORE MAY: 0 = { 1 }; 1 = { 2 }; 2 = { 0 }; <<
+       >>BEFORE MUST: 0 -> 1; 1 -> 2; 2 -> 0; <<
+      ADDRESS 2 0
+       >>AFTER MAY: 0 = { 1 }; 1 = { 2 }; 2 = { 0 }; <<
+       >>AFTER MUST: 0 -> 1; 1 -> 2; 2 -> 0; <<
+       >>BEFORE MAY: 0 = { 1 }; 1 = { 2 }; 2 = { 0 }; <<
+       >>BEFORE MUST: 0 -> 1; 1 -> 2; 2 -> 0; <<
+      JUMP
+       >>AFTER MAY: 0 = { 1 }; 1 = { 2 }; 2 = { 0 }; <<
+       >>AFTER MUST: 0 -> 1; 1 -> 2; 2 -> 0; <<
+    }
+    |_succ__: 0
+    |_pred__: 1
+
+  >
+
+__entry__ main:
+  __params__:
+  (
+  )
+  __locals__:
+  [
+  ]
+  __basic_blocks__:
+  <
+    __entry__
+    0:
+     >>BB-IN MAY: <<
+     >>BB-IN MUST: <<
+    {
+       >>BEFORE MAY: <<
+       >>BEFORE MUST: <<
+      RET
+       >>AFTER MAY: <<
+       >>AFTER MUST: <<
+    }
+    |_succ__:
+    |_pred__:
+
+  >
+

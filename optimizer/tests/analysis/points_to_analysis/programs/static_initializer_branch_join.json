@@ -1,0 +1,80 @@
+{
+"magic": "sala",
+"version": "0.1",
+"system": "x86_64-pc-linux-gnu",
+"num_cpu_bits": 64,
+"name": "static_initializer_branch_join",
+"entry_function": 1,
+"constants": [
+  "0000"
+],
+"static": [
+  [ 4, [0,0] ],
+  [ 8, [0,0] ],
+  [ 8, [0,0] ],
+  [ 8, [0,0] ],
+  [ 8, [0,0] ]
+],
+"functions": [
+  {
+    "name": [ "__sala_static_initializer__", [0,0] ],
+    "parameters": [
+    ],
+    "locals": [
+      [ 4, [0,0] ]
+    ],
+    "basic_blocks": [
+      {
+        "instructions": [
+          [ "COPY", "n", "lc", 0, 0, [0,0] ],
+          [ "BRANCH", "n", "l", 0, [0,0] ]
+        ],
+        "successors": [ 1, 2 ]
+      },
+      {
+        "instructions": [
+          [ "ADDRESS", "n", "ss", 1, 2, [0,0] ],
+          [ "JUMP", "n", [0,0] ]
+        ],
+        "successors": [ 3 ]
+      },
+      {
+        "instructions": [
+          [ "ADDRESS", "n", "ss", 1, 3, [0,0] ],
+          [ "JUMP", "n", [0,0] ]
+        ],
+        "successors": [ 3 ]
+      },
+      {
+        "instructions": [
+          [ "RET", "n", [0,0] ]
+        ],
+        "successors": [ ]
+      }
+    ]
+  },
+  {
+    "name": [ "main", [0,0] ],
+    "parameters": [
+    ],
+    "locals": [
+      [ 8, [0,0] ],
+      [ 8, [0,0] ]
+    ],
+    "basic_blocks": [
+      {
+        "instructions": [
+          [ "ADDRESS", "n", "ls", 0, 1, [0,0] ],
+          [ "LOAD", "n", "ll", 1, 0, [0,0] ],
+          [ "RET", "n", [0,0] ]
+        ],
+        "successors": [ ]
+      }
+    ]
+  }
+],
+"external_variables": [
+],
+"external_functions": [
+]
+}

@@ -1,0 +1,129 @@
+__CONSTANTS__
+ [
+  0
+ ]
+__STATIC__
+ [
+  1
+  2
+  3
+  4
+  5
+ ]
+__init__ __sala_static_initializer__:
+  __params__:
+  (
+  )
+  __locals__:
+  [
+    6
+  ]
+  __basic_blocks__:
+  <
+    __entry__
+    0:
+     >>BB-IN MAY: <<
+     >>BB-IN MUST: <<
+    {
+       >>BEFORE MAY: <<
+       >>BEFORE MUST: <<
+      COPY 6 0
+       >>AFTER MAY: <<
+       >>AFTER MUST: <<
+       >>BEFORE MAY: <<
+       >>BEFORE MUST: <<
+      BRANCH 6
+       >>AFTER MAY: <<
+       >>AFTER MUST: <<
+    }
+    |_succ__: 1 2
+    |_pred__:
+
+    1:
+     >>BB-IN MAY: <<
+     >>BB-IN MUST: <<
+    {
+       >>BEFORE MAY: <<
+       >>BEFORE MUST: <<
+      ADDRESS 2 3
+       >>AFTER MAY: 2 = { 3 }; <<
+       >>AFTER MUST: 2 -> 3; <<
+       >>BEFORE MAY: 2 = { 3 }; <<
+       >>BEFORE MUST: 2 -> 3; <<
+      JUMP
+       >>AFTER MAY: 2 = { 3 }; <<
+       >>AFTER MUST: 2 -> 3; <<
+    }
+    |_succ__: 3
+    |_pred__: 0
+
+    2:
+     >>BB-IN MAY: <<
+     >>BB-IN MUST: <<
+    {
+       >>BEFORE MAY: <<
+       >>BEFORE MUST: <<
+      ADDRESS 2 4
+       >>AFTER MAY: 2 = { 4 }; <<
+       >>AFTER MUST: 2 -> 4; <<
+       >>BEFORE MAY: 2 = { 4 }; <<
+       >>BEFORE MUST: 2 -> 4; <<
+      JUMP
+       >>AFTER MAY: 2 = { 4 }; <<
+       >>AFTER MUST: 2 -> 4; <<
+    }
+    |_succ__: 3
+    |_pred__: 0
+
+    3:
+     >>BB-IN MAY: 2 = { 3, 4 }; <<
+     >>BB-IN MUST: <<
+    {
+       >>BEFORE MAY: 2 = { 3, 4 }; <<
+       >>BEFORE MUST: <<
+      RET
+       >>AFTER MAY: 2 = { 3, 4 }; <<
+       >>AFTER MUST: <<
+    }
+    |_succ__:
+    |_pred__: 2 1
+
+  >
+
+__entry__ main:
+  __params__:
+  (
+  )
+  __locals__:
+  [
+    6
+    7
+  ]
+  __basic_blocks__:
+  <
+    __entry__
+    0:
+     >>BB-IN MAY: 2 = { 3, 4 }; <<
+     >>BB-IN MUST: <<
+    {
+       >>BEFORE MAY: 2 = { 3, 4 }; <<
+       >>BEFORE MUST: <<
+      ADDRESS 6 2
+       >>AFTER MAY: 2 = { 3, 4 }; 6 = { 2 }; <<
+       >>AFTER MUST: 6 -> 2; <<
+       >>BEFORE MAY: 2 = { 3, 4 }; 6 = { 2 }; <<
+       >>BEFORE MUST: 6 -> 2; <<
+      LOAD 7 6
+       >>AFTER MAY: 2 = { 3, 4 }; 6 = { 2 }; 7 = { 3, 4 }; <<
+       >>AFTER MUST: 6 -> 2; <<
+       >>BEFORE MAY: 2 = { 3, 4 }; 6 = { 2 }; 7 = { 3, 4 }; <<
+       >>BEFORE MUST: 6 -> 2; <<
+      RET
+       >>AFTER MAY: 2 = { 3, 4 }; 6 = { 2 }; 7 = { 3, 4 }; <<
+       >>AFTER MUST: 6 -> 2; <<
+    }
+    |_succ__:
+    |_pred__:
+
+  >
+

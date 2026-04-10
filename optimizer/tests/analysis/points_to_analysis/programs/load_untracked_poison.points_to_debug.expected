@@ -1,0 +1,63 @@
+__CONSTANTS__
+ [
+ ]
+__STATIC__
+ [
+ ]
+__init__ __sala_static_initializer__:
+  __params__:
+  (
+  )
+  __locals__:
+  [
+  ]
+  __basic_blocks__:
+  <
+    __entry__
+    0:
+     >>BB-IN MAY: <<
+     >>BB-IN MUST: <<
+    {
+       >>BEFORE MAY: <<
+       >>BEFORE MUST: <<
+      RET
+       >>AFTER MAY: <<
+       >>AFTER MUST: <<
+    }
+    |_succ__:
+    |_pred__:
+
+  >
+
+__entry__ main:
+  __params__:
+  (
+  )
+  __locals__:
+  [
+    0
+    1
+  ]
+  __basic_blocks__:
+  <
+    __entry__
+    0:
+     >>BB-IN MAY: POISONED<<
+     >>BB-IN MUST: POISONED<<
+    {
+       >>BEFORE MAY: POISONED<<
+       >>BEFORE MUST: POISONED<<
+      LOAD 0 1
+       >>AFTER MAY: POISONED<<
+       >>AFTER MUST: POISONED<<
+       >>BEFORE MAY: POISONED<<
+       >>BEFORE MUST: POISONED<<
+      RET
+       >>AFTER MAY: POISONED<<
+       >>AFTER MUST: POISONED<<
+    }
+    |_succ__:
+    |_pred__:
+
+  >
+
