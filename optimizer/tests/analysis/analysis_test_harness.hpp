@@ -218,8 +218,7 @@ class AnalysisTestHarness
 
         if (!any_diff)
         {
-            oss << "\nTexts differ, but no line-level difference was detected. "
-                   "This may indicate newline/encoding issues.\n";
+            oss << "\nTexts differ, but no line-level difference was detected. ";
         }
 
         return oss.str();
