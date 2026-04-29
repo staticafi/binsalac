@@ -4,16 +4,23 @@
 #include <optimizer/programIR/constant_ir.hpp>
 #include <optimizer/programIR/function_ir.hpp>
 #include <optimizer/programIR/instruction_ir.hpp>
+#include <optimizer/utils/sparse_map.hpp>
+#include <optimizer/utils/sparse_set.hpp>
 
+#include <utility/development.hpp>
 #include <utility/invariants.hpp>
 
+#include <algorithm>
 #include <span>
+#include <string_view>
+#include <unordered_map>
 #include <unordered_set>
-#include <utility/development.hpp>
+#include <vector>
 
 namespace optimizer::passes
 {
 using ConstantView = std::span<const uint8_t>;
+
 namespace
 {
 struct ConstantViewHash
@@ -41,19 +48,45 @@ class Impl
   private:
     void run()
     {
-
         if (!group_constants())
         {
             return;
         }
 
-        exclude_possibly_redefined();
+        collect_possibly_redefined_constants();
+        select_canonical_constants();
+
+        if (replacement_map_.empty())
+        {
+            return;
+        }
+
         redirect_to_canonical();
-        return;
+        release_duplicates();
     }
 
   private:
-    void exclude_possibly_redefined()
+    bool group_constants()
+    {
+        bool duplicate_found = false;
+
+        for (const auto& constant : sala_ir_->get_constants())
+        {
+            auto [it, inserted] = grouped_constants_.try_emplace(
+                    constant->get_bytes(), std::vector<program::ConstantIR_sptr>{});
+
+            if (!inserted)
+            {
+                duplicate_found = true;
+            }
+
+            it->second.push_back(constant);
+        }
+
+        return duplicate_found;
+    }
+
+    void collect_possibly_redefined_constants()
     {
         const auto static_init = sala_ir_->get_static_initializer_func();
 
@@ -65,12 +98,18 @@ class Impl
                 {
                 case sala::Instruction::Opcode::ADDRESS:
                 {
+                    /*
+                     * ADDRESS is treated conservatively: if the address of a
+                     * constant is taken during static initialization, the
+                     * constant may be modified indirectly later.
+                     */
                     for (const auto& operand : instruction->get_operands())
                     {
-                        exclude_possible_const_operand(operand);
+                        mark_possibly_redefined_constant(operand);
                     }
                     break;
                 }
+
                 case sala::Instruction::Opcode::LOAD:
                 case sala::Instruction::Opcode::COPY:
                 case sala::Instruction::Opcode::MALLOC:
@@ -99,10 +138,16 @@ class Impl
                 case sala::Instruction::Opcode::UNEQUAL:
                 case sala::Instruction::Opcode::MOVEPTR:
                 {
+                    /*
+                     * For these instructions, the first operand is treated as
+                     * the destination. If it is a constant, that constant is
+                     * unsafe as a canonical target.
+                     */
                     const auto& operand = *instruction->get_operands().begin();
-                    exclude_possible_const_operand(operand);
+                    mark_possibly_redefined_constant(operand);
                     break;
                 }
+
                 case sala::Instruction::Opcode::__INVALID__:
                 case sala::Instruction::Opcode::STORE:
                 case sala::Instruction::Opcode::NOP:
@@ -124,6 +169,7 @@ class Impl
                 case sala::Instruction::Opcode::VA_ARG:
                 case sala::Instruction::Opcode::VA_COPY:
                     break;
+
                 default:
                     NOT_SUPPORTED();
                 }
@@ -131,7 +177,7 @@ class Impl
         }
     }
 
-    void exclude_possible_const_operand(const program::OperandIR_raw operand)
+    void mark_possibly_redefined_constant(const program::OperandIR_raw operand)
     {
         if (!std::holds_alternative<program::ConstantIR_raw>(operand))
         {
@@ -139,13 +185,57 @@ class Impl
         }
 
         const auto constant = std::get<program::ConstantIR_raw>(operand);
-        duplicates_.erase(constant);
+        possibly_redefined_constants_.insert(constant);
     }
 
-    void clear_context()
+    void select_canonical_constants()
     {
-        canonical_constant_map_.clear();
-        duplicates_.clear();
+        for (const auto& [_, constants] : grouped_constants_)
+        {
+            if (constants.size() < 2)
+            {
+                continue;
+            }
+
+            const auto canonical_it = std::find_if(
+                    constants.begin(), constants.end(),
+                    [this](const program::ConstantIR_sptr& constant)
+                    { return !possibly_redefined_constants_.contains(constant.get()); });
+
+            /*
+             * If every constant with this byte sequence may be redefined during
+             * static initialization, no safe representative exists.
+             */
+            if (canonical_it == constants.end())
+            {
+                continue;
+            }
+
+            const auto& canonical = *canonical_it;
+
+            for (const auto& constant : constants)
+            {
+                if (constant == canonical)
+                {
+                    continue;
+                }
+
+                /*
+                 * A possibly redefined constant must keep its own storage.
+                 * It must not be redirected to another constant, and it must
+                 * not be used as the canonical target for other constants.
+                 */
+                if (possibly_redefined_constants_.contains(constant.get()))
+                {
+                    continue;
+                }
+
+                const auto [_, inserted] = replacement_map_.try_emplace(constant.get(), canonical);
+                INVARIANT(inserted);
+
+                duplicates_to_release_.push_back(constant);
+            }
+        }
     }
 
     void redirect_to_canonical() const
@@ -162,57 +252,47 @@ class Impl
                         {
                             continue;
                         }
-                        const auto constant = std::get<program::ConstantIR_raw>(operand);
-                        if (duplicates_.contains(constant))
+
+                        const auto constant       = std::get<program::ConstantIR_raw>(operand);
+                        const auto replacement_it = replacement_map_.find(constant);
+
+                        if (replacement_it == replacement_map_.end())
                         {
-                            operand = canonical_constant_map_.at(constant->get_bytes()).get();
                             continue;
                         }
+
+                        operand = replacement_it->second.get();
                     }
                 }
             }
         }
     }
 
-    bool group_constants()
+    void release_duplicates()
     {
-        bool duplicit_found = false;
-        for (auto constant_it = sala_ir_->get_constants().begin();
-             constant_it != sala_ir_->get_constants().end();)
+        for (const auto& duplicate : duplicates_to_release_)
         {
-            const auto& constant = *constant_it;
-            const auto [_, succes] =
-                    canonical_constant_map_.try_emplace(constant->get_bytes(), constant);
-            if (!succes)
-            {
-                const auto next_constant = std::next(constant_it);
-                const auto [_, success]  = duplicates_.insert(constant.get());
-                INVARIANT(success);
-                sala_ir_->release_constant(constant);
-                duplicit_found = true;
-                constant_it    = next_constant;
-            }
-            else
-            {
-                ++constant_it;
-            }
+            sala_ir_->release_constant(duplicate);
         }
-
-        return duplicit_found;
     }
 
   private:
     program::ProgramIR_sptr sala_ir_;
-    std::unordered_map<ConstantView, program::ConstantIR_sptr, ConstantViewHash, ConstantViewEq>
-                                                canonical_constant_map_;
-    std::unordered_set<program::ConstantIR_raw> duplicates_;
+
+    std::unordered_map<ConstantView, std::vector<program::ConstantIR_sptr>, ConstantViewHash,
+                       ConstantViewEq>
+            grouped_constants_;
+
+    utils::SparseSet<program::ConstantIR_raw> possibly_redefined_constants_;
+
+    utils::SparseMap<program::ConstantIR_raw, program::ConstantIR_sptr> replacement_map_;
+
+    std::vector<program::ConstantIR_sptr> duplicates_to_release_;
 };
 } // namespace
 
 void MergeConstants::run(program::ProgramIR_sptr sala_ir)
 {
-    std::cout << "MCT: started" << std::endl;
     const auto trigger = Impl(std::move(sala_ir));
-    std::cout << "MCT: done" << std::endl;
 }
 } // namespace optimizer::passes

@@ -7,6 +7,7 @@ namespace optimizer::passes
 {
 class MergeConstants
 {
+  public:
     void run(program::ProgramIR_sptr sala_ir);
 };
 } // namespace optimizer::passes
