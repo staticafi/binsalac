@@ -128,6 +128,75 @@ class SparseMap
         return insert(value_type{std::forward<K>(key), std::forward<V>(value)});
     }
 
+    template <typename K, typename... Args>
+        requires(!std::same_as<std::remove_cvref_t<K>, iterator> &&
+                 !std::same_as<std::remove_cvref_t<K>, const_iterator>)
+    std::pair<iterator, bool> try_emplace(K&& key, Args&&... args)
+    {
+        auto it = lower_bound_(key);
+        if (it != data_.end() && it->first == key)
+        {
+            return {it, false};
+        }
+
+        it = data_.emplace(it, std::forward<K>(key), mapped_type(std::forward<Args>(args)...));
+        return {it, true};
+    }
+
+    template <typename K, typename... Args>
+    std::pair<iterator, bool> try_emplace(const_iterator hint, K&& key, Args&&... args)
+    {
+        if (data_.empty())
+        {
+            auto it = data_.emplace(data_.begin(), std::forward<K>(key),
+                                    mapped_type(std::forward<Args>(args)...));
+            return {it, true};
+        }
+
+        if (hint == data_.end())
+        {
+            if (data_.back().first < key)
+            {
+                auto it = data_.emplace(data_.end(), std::forward<K>(key),
+                                        mapped_type(std::forward<Args>(args)...));
+                return {it, true};
+            }
+
+            if (data_.back().first == key)
+            {
+                return {std::prev(data_.end()), false};
+            }
+        }
+        else
+        {
+            auto idx = static_cast<typename storage_type::difference_type>(
+                    std::distance(data_.cbegin(), hint));
+            auto it = data_.begin() + idx;
+
+            if (it->first == key)
+            {
+                return {it, false};
+            }
+
+            const bool ok_after_prev = (it == data_.begin()) || (std::prev(it)->first < key);
+            const bool ok_before_it  = key < it->first;
+
+            if (ok_after_prev && ok_before_it)
+            {
+                auto inserted = data_.emplace(it, std::forward<K>(key),
+                                              mapped_type(std::forward<Args>(args)...));
+                return {inserted, true};
+            }
+
+            if (it != data_.begin() && std::prev(it)->first == key)
+            {
+                return {std::prev(it), false};
+            }
+        }
+
+        return try_emplace(std::forward<K>(key), std::forward<Args>(args)...);
+    }
+
     template <typename K, typename V>
     iterator emplace_hint(const_iterator hint, K&& key, V&& value)
     {

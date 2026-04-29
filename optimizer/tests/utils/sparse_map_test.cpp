@@ -112,6 +112,154 @@ TEST_CASE("SparseMap emplace and emplace_hint insert elements correctly", "[Spar
     REQUIRE(map.at(5) == "five");
 }
 
+TEST_CASE("SparseMap try_emplace inserts new key and does not overwrite existing key",
+          "[SparseMap]")
+{
+    SparseMap<int, std::string> map;
+
+    auto [it1, inserted1] = map.try_emplace(2, "two");
+    REQUIRE(inserted1);
+    REQUIRE(it1 != map.end());
+    REQUIRE(it1->first == 2);
+    REQUIRE(it1->second == "two");
+
+    auto [it2, inserted2] = map.try_emplace(2, "updated");
+    REQUIRE_FALSE(inserted2);
+    REQUIRE(it2 == it1);
+    REQUIRE(map.size() == 1);
+    REQUIRE(map.at(2) == "two");
+}
+
+TEST_CASE("SparseMap try_emplace keeps keys sorted", "[SparseMap]")
+{
+    SparseMap<int, std::string> map;
+
+    auto [it5, inserted5] = map.try_emplace(5, "five");
+    REQUIRE(inserted5);
+    REQUIRE(it5->first == 5);
+    REQUIRE(it5->second == "five");
+
+    auto [it1, inserted1] = map.try_emplace(1, "one");
+    REQUIRE(inserted1);
+    REQUIRE(it1->first == 1);
+    REQUIRE(it1->second == "one");
+
+    auto [it3, inserted3] = map.try_emplace(3, "three");
+    REQUIRE(inserted3);
+    REQUIRE(it3->first == 3);
+    REQUIRE(it3->second == "three");
+
+    REQUIRE(map.size() == 3);
+
+    std::vector<int> keys;
+    for (const auto& [key, _] : map)
+    {
+        keys.push_back(key);
+    }
+
+    REQUIRE(keys == std::vector<int>{1, 3, 5});
+}
+
+TEST_CASE("SparseMap try_emplace with hint handles insert and duplicate key", "[SparseMap]")
+{
+    SparseMap<int, std::string> map;
+    map.insert({2, "two"});
+    map.insert({4, "four"});
+
+    SECTION("insert before begin hint")
+    {
+        auto [it, inserted] = map.try_emplace(map.begin(), 1, "one");
+
+        REQUIRE(inserted);
+        REQUIRE(it != map.end());
+        REQUIRE(it->first == 1);
+        REQUIRE(it->second == "one");
+        REQUIRE(map.size() == 3);
+    }
+
+    SECTION("insert after end hint")
+    {
+        auto [it, inserted] = map.try_emplace(map.end(), 5, "five");
+
+        REQUIRE(inserted);
+        REQUIRE(it != map.end());
+        REQUIRE(it->first == 5);
+        REQUIRE(it->second == "five");
+        REQUIRE(map.size() == 3);
+    }
+
+    SECTION("duplicate at hint is not overwritten")
+    {
+        auto hint = map.find(2);
+        REQUIRE(hint != map.end());
+
+        auto [it, inserted] = map.try_emplace(hint, 2, "updated");
+
+        REQUIRE_FALSE(inserted);
+        REQUIRE(it == hint);
+        REQUIRE(it->first == 2);
+        REQUIRE(it->second == "two");
+        REQUIRE(map.size() == 2);
+    }
+
+    SECTION("duplicate before hint is not overwritten")
+    {
+        auto hint = map.find(4);
+        REQUIRE(hint != map.end());
+
+        auto [it, inserted] = map.try_emplace(hint, 2, "updated");
+
+        REQUIRE_FALSE(inserted);
+        REQUIRE(it != map.end());
+        REQUIRE(it->first == 2);
+        REQUIRE(it->second == "two");
+        REQUIRE(map.size() == 2);
+    }
+
+    SECTION("poor hint falls back and inserts in sorted order")
+    {
+        auto [it, inserted] = map.try_emplace(map.begin(), 3, "three");
+
+        REQUIRE(inserted);
+        REQUIRE(it != map.end());
+        REQUIRE(it->first == 3);
+        REQUIRE(it->second == "three");
+        REQUIRE(map.size() == 3);
+
+        std::vector<int> keys;
+        for (const auto& [key, _] : map)
+        {
+            keys.push_back(key);
+        }
+
+        REQUIRE(keys == std::vector<int>{2, 3, 4});
+    }
+}
+
+TEST_CASE("SparseMap try_emplace constructs mapped value from arguments", "[SparseMap]")
+{
+    SparseMap<int, std::vector<int>> map;
+
+    auto [it, inserted] = map.try_emplace(1, 3, 7);
+
+    REQUIRE(inserted);
+    REQUIRE(it != map.end());
+    REQUIRE(it->first == 1);
+    REQUIRE(it->second == std::vector<int>{7, 7, 7});
+}
+
+TEST_CASE("SparseMap try_emplace with hint constructs mapped value from arguments", "[SparseMap]")
+{
+    SparseMap<int, std::vector<int>> map;
+
+    auto [it, inserted] = map.try_emplace(map.end(), 1, 3, 7);
+
+    REQUIRE(inserted);
+    REQUIRE(it != map.end());
+    REQUIRE(it->first == 1);
+    REQUIRE(it->second == std::vector<int>{7, 7, 7});
+}
+
 TEST_CASE("SparseMap insert with hint returns existing iterator for duplicate key", "[SparseMap]")
 {
     SparseMap<int, int> map;
