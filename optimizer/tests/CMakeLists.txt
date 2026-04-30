@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.10)
-project(optimizer_tests)
 add_library(optimizer_tests_common INTERFACE)
 
 message("Searching for Catch2 library ...")

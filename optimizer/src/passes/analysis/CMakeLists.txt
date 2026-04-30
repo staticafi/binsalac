@@ -1,6 +1,3 @@
-cmake_minimum_required(VERSION 3.10)
-project(optimizer_lib)
-
 set(INCLUDE_DIR
   ${CMAKE_CURRENT_SOURCE_DIR}/../../../include/optimizer/passes/analysis
 )
