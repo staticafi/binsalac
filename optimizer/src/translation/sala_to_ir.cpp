@@ -25,7 +25,6 @@ program::ProgramIR_sptr SalaToIR::translate(const std::shared_ptr<sala::Program>
     const auto program          = std::make_shared<program::ProgramIR>();
     program->get_num_cpu_bits() = source->num_cpu_bits();
 
-    // FIXME: remove cpu bits from translation meta
     auto& metadata            = program->get_metadata();
     auto  translation_meta    = std::make_unique<metadata::translation::ProgramMeta>();
     translation_meta->name    = source->name();
