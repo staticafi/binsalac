@@ -1,6 +1,3 @@
-cmake_minimum_required(VERSION 3.10)
-project(program_ir_tests)
-
 set(SOURCE_FILES
   ${CMAKE_CURRENT_LIST_DIR}/program_ir_test.cpp
 )
