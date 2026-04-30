@@ -31,11 +31,7 @@ struct FunctionContext
     FunctionContext(std::size_t function_id, program::FunctionIR_sptr function, int id_start)
         : _id{function_id}, function_{std::move(function)}, id_start_{id_start}
     {
-        if (function_->get_initializer_flag())
-        {
-            throw std::logic_error("Static initializer is not part of the local analysis");
-        }
-
+        ASSUMPTION(!function_->get_initializer_flag());
         init_data();
     }
 
@@ -147,38 +143,32 @@ struct FunctionContext
             return;
         }
 
-        if (object_end_bb_iter->second.is_top)
+        const auto& source_value = object_end_bb_iter->second;
+
+        if (source_value.is_top)
         {
             exported_may.may.insert_or_assign(object_id, utils::MayValue::top());
             return;
         }
 
-        std::optional<MayState::iterator> exported_iter;
+        utils::MayValue projected;
+        projected.loss_flags = source_value.loss_flags;
 
-        const auto add_to_result = [&](const utils::Target& elem)
-        {
-            if (exported_iter.has_value())
-            {
-                exported_iter.value()->second.insert(elem);
-            }
-            else
-            {
-                const auto [iter, _] = exported_may.may.insert(
-                        std::make_pair(object_id, utils::MayValue::singleton(elem)));
-                exported_iter = iter;
-            }
-        };
-
-        for (const auto target : object_end_bb_iter->second)
+        for (const auto& target : source_value)
         {
             if (global_objects_->contains(target.id) || target.id == grouped_objects::HEAP)
             {
-                add_to_result(target);
+                projected.insert(target);
             }
             else
             {
-                add_to_result({grouped_objects::OUT_OF_GLOBAL_SCOPE, false});
+                projected.insert(utils::Target{grouped_objects::OUT_OF_GLOBAL_SCOPE, false});
             }
+        }
+
+        if (!projected.empty())
+        {
+            exported_may.may.insert_or_assign(object_id, std::move(projected));
         }
     }
 
