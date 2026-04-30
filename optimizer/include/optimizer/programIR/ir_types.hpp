@@ -1,5 +1,5 @@
-#ifndef IR_TYPES_HPP_INCLUDED
-#define IR_TYPES_HPP_INCLUDED
+#ifndef OPTIMIZER_IR_TYPES_HPP_INCLUDED
+#define OPTIMIZER_IR_TYPES_HPP_INCLUDED
 #include <optimizer/metadata/metadata.hpp>
 
 #include <list>
