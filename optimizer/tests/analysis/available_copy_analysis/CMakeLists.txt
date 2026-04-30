@@ -1,6 +1,3 @@
-cmake_minimum_required(VERSION 3.10)
-project(available_copy_analysis_chain_tests)
-
 set(SOURCE_FILES
   ${CMAKE_CURRENT_LIST_DIR}/available_copy_analysis_chain_test.cpp
 )

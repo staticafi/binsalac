@@ -1,6 +1,3 @@
-cmake_minimum_required(VERSION 3.10)
-project(utils_tests)
-
 set(SOURCE_FILES
   ${CMAKE_CURRENT_LIST_DIR}/dynamic_bitset_test.cpp
   ${CMAKE_CURRENT_LIST_DIR}/sparse_map_test.cpp
