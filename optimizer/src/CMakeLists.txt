@@ -1,9 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
-project(optimizer_lib)
-
 set(THIS_TARGET_NAME optimizer)
-
-find_package(TBB 2021 REQUIRED COMPONENTS tbb)
 
 set(INCLUDE_DIR
   ${CMAKE_CURRENT_SOURCE_DIR}/../include/optimizer
@@ -30,6 +25,5 @@ add_subdirectory(utils)
 target_link_libraries(${THIS_TARGET_NAME}
     sala
     utility
-    TBB::tbb
     ${BOOST_LIST_OF_LIBRARIES_TO_LINK_WITH}
 )
