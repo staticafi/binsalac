@@ -12,10 +12,10 @@ namespace optimizer::pipeline
 //                       DumpPointsToPass, RemoveIndirectionsPass, BumpIrToSalaPass>;
 
 using TestingPipeline =
-        TypedPipeline<Repr::Sala, LowerSalaToIRPass, GlobalPointsToPass, LocalPointsToPass,
-                      RemoveIndirectionsPass, AvailableCopyPass, PropagateCopyPass, LivenessPass,
-                      DeadInstructionEliminationPass, DeadVariablesEliminationPass,
-                      BumpIrToSalaPass>;
+        TypedPipeline<Repr::Sala, LowerSalaToIRPass, MergeConstantsPass, GlobalPointsToPass,
+                      LocalPointsToPass, RemoveIndirectionsPass, AvailableCopyPass,
+                      PropagateCopyPass, LivenessPass, DeadInstructionEliminationPass,
+                      DeadVariablesEliminationPass, BumpIrToSalaPass>;
 
 } // namespace optimizer::pipeline
 
