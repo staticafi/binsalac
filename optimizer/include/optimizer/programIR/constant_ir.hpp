@@ -9,7 +9,6 @@ namespace optimizer::program
 
 class ConstantIR : public std::enable_shared_from_this<ConstantIR>
 {
-    // TODO: add metadata
   public:
     using Metadata = metadata::Metadata<ConstantMetaEntryI>;
 
