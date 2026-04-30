@@ -224,6 +224,75 @@ class Impl
         }
     }
 
+    utils::MayValue export_value_to_global_scope(const utils::MayValue& value) const
+    {
+        if (value.is_top)
+        {
+            return utils::MayValue::top();
+        }
+
+        utils::MayValue exported{};
+        exported.loss_flags = value.loss_flags;
+
+        for (const auto& target : value)
+        {
+            if (global_objects_.contains(target.id) || target.id == utils::grouped_objects::HEAP)
+            {
+                exported.insert(target);
+            }
+            else
+            {
+                exported.insert(utils::Target{utils::grouped_objects::OUT_OF_GLOBAL_SCOPE, false});
+            }
+        }
+
+        return exported;
+    }
+
+    void export_global_object_may(const objectId object_id, const MayAnalysisState& source,
+                                  MayAnalysisState& exported) const
+    {
+        if (source.poisoned)
+        {
+            utils::poison_may_state(exported);
+            return;
+        }
+
+        const auto source_iter = source.may.find(object_id);
+        if (source_iter == source.may.end())
+        {
+            return;
+        }
+
+        auto projected = export_value_to_global_scope(source_iter->second);
+        if (!projected.empty())
+        {
+            exported.may.insert_or_assign(object_id, std::move(projected));
+        }
+    }
+
+    MayAnalysisState export_static_initializer_state(const MayAnalysisState& source) const
+    {
+        MayAnalysisState exported{};
+
+        if (source.poisoned)
+        {
+            utils::poison_may_state(exported);
+            return exported;
+        }
+
+        for (const auto& [object_id, _] : global_objects_)
+        {
+            export_global_object_may(object_id, source, exported);
+            if (exported.poisoned)
+            {
+                return exported;
+            }
+        }
+
+        return exported;
+    }
+
     void materialize()
     {
         if (NB_ == 0)
@@ -287,13 +356,15 @@ class Impl
 
             if (blocks_[b]->get_successors().empty())
             {
+                auto exported_exit_may = export_static_initializer_state(out_may_.get(b));
+
                 if (first_end_found)
                 {
-                    utils::state_join_or_strict(program_points_to_meta->may_out, out_may_.get(b));
+                    utils::state_join_or_strict(program_points_to_meta->may_out, exported_exit_may);
                 }
                 else
                 {
-                    program_points_to_meta->may_out = out_may_.get(b);
+                    program_points_to_meta->may_out = std::move(exported_exit_may);
                     first_end_found                 = true;
                 }
             }
