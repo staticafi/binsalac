@@ -163,9 +163,8 @@ struct FunctionContext
             }
             else
             {
-                const auto [iter, inserted] = exported_may.may.insert(
+                const auto [iter, _] = exported_may.may.insert(
                         std::make_pair(object_id, utils::MayValue::singleton(elem)));
-                (void)inserted;
                 exported_iter = iter;
             }
         };
@@ -701,8 +700,6 @@ struct Impl
 
 void LocalPointsToAnalysis::run(program::ProgramIR_sptr sala_ir)
 {
-    std::cout << "LPA: started" << std::endl;
     const auto trigger = Impl(std::move(sala_ir));
-    std::cout << "LPA: done" << std::endl;
 }
 } // namespace optimizer::passes
