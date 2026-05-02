@@ -8,6 +8,19 @@ namespace optimizer::utils::points_to
 {
 namespace
 {
+inline std::size_t hash_must_map(const MustState& state) noexcept
+{
+    std::size_t seed = std::hash<std::size_t>{}(state.size());
+
+    for (const auto& [object_id, target] : state)
+    {
+        hash_combine(seed, std::hash<objectId>{}(object_id));
+        hash_combine(seed, std::hash<Target>{}(target));
+    }
+
+    return seed;
+}
+
 inline std::size_t hash_may_map(const MayState& state) noexcept
 {
     std::size_t seed = std::hash<std::size_t>{}(state.size());
@@ -22,10 +35,13 @@ inline std::size_t hash_may_map(const MayState& state) noexcept
 inline std::size_t hash_may_state(const MayAnalysisState& state) noexcept
 {
     std::size_t seed = std::hash<bool>{}(state.poisoned);
+
     if (!state.poisoned)
     {
         hash_combine(seed, hash_may_map(state.may));
+        hash_combine(seed, hash_must_map(state.must));
     }
+
     return seed;
 }
 } // namespace

@@ -57,7 +57,7 @@ struct FunctionContext
         attach_function_points_to_metadata();
     }
 
-    [[nodiscard]] std::optional<MayAnalysisState> get_after_global_states() const
+    std::optional<MayAnalysisState> get_after_global_states() const
     {
         std::optional<MayAnalysisState> result;
 
@@ -69,7 +69,7 @@ struct FunctionContext
             }
 
             auto exported_exit = export_exit_block_to_global_state(exit_block);
-            merge_optional_global_state(result, std::move(exported_exit));
+            merge_optional_exit_export(result, std::move(exported_exit));
         }
 
         return result;
@@ -341,6 +341,7 @@ struct FunctionContext
         {
             may_in.may.insert_or_assign(
                     param, utils::make_singleton(grouped_objects::OUT_OF_LOCAL_SCOPE, false));
+            may_in.must.erase(param);
         }
     }
 
@@ -368,7 +369,7 @@ struct FunctionContext
             return;
         }
 
-        utils::state_join_or_strict(target, source);
+        utils::state_join_cfg(target, source);
     }
 
     void apply_block_transfers(std::size_t block, MayAnalysisState& may)
@@ -449,7 +450,7 @@ struct FunctionContext
         function_->get_metadata().set(std::move(function_meta));
     }
 
-    [[nodiscard]] MayAnalysisState export_exit_block_to_global_state(std::size_t exit_block) const
+    MayAnalysisState export_exit_block_to_global_state(std::size_t exit_block) const
     {
         MayAnalysisState exported{};
         const auto&      out_may = out_may_.get(exit_block);
@@ -462,18 +463,19 @@ struct FunctionContext
 
         for (const auto& [object_id, _] : *global_objects_)
         {
-            export_global_object_may(object_id, out_may, exported);
+            export_global_object_state_cell(object_id, out_may, exported);
             if (exported.poisoned)
             {
                 return exported;
             }
         }
 
+        export_global_object_state_cell(grouped_objects::HEAP, out_may, exported);
         return exported;
     }
 
-    void export_global_object_may(objectId object_id, const MayAnalysisState& local_out_may,
-                                  MayAnalysisState& exported_may) const
+    void export_global_object_state_cell(objectId object_id, const MayAnalysisState& local_out_may,
+                                         MayAnalysisState& exported_may) const
     {
         if (local_out_may.poisoned)
         {
@@ -482,19 +484,27 @@ struct FunctionContext
         }
 
         const auto object_iter = local_out_may.may.find(object_id);
-        if (object_iter == local_out_may.may.end())
+        if (object_iter != local_out_may.may.end())
         {
-            return;
+            auto projected = project_may_value_to_global_scope(object_iter->second);
+            if (!projected.empty())
+            {
+                exported_may.may.insert_or_assign(object_id, std::move(projected));
+            }
         }
 
-        auto projected = project_value_to_global_scope(object_iter->second);
-        if (!projected.empty())
+        const auto must_iter = local_out_may.must.find(object_id);
+        if (must_iter != local_out_may.must.end())
         {
-            exported_may.may.insert_or_assign(object_id, std::move(projected));
+            if (auto projected_must = project_must_value_to_global_scope(must_iter->second);
+                projected_must.has_value())
+            {
+                exported_may.must.insert_or_assign(object_id, projected_must.value());
+            }
         }
     }
-
-    [[nodiscard]] utils::MayValue project_value_to_global_scope(const utils::MayValue& value) const
+    [[nodiscard]] utils::MayValue
+    project_may_value_to_global_scope(const utils::MayValue& value) const
     {
         if (value.is_top)
         {
@@ -502,7 +512,6 @@ struct FunctionContext
         }
 
         utils::MayValue projected{};
-        projected.loss_flags = value.loss_flags;
 
         for (const auto& target : value)
         {
@@ -519,13 +528,24 @@ struct FunctionContext
         return projected;
     }
 
-    [[nodiscard]] bool is_globally_visible_target(objectId id) const
+    std::optional<utils::Target>
+    project_must_value_to_global_scope(const utils::Target& target) const
+    {
+        if (!target.offset_flag && global_objects_->contains(target.id))
+        {
+            return target;
+        }
+
+        return std::nullopt;
+    }
+
+    bool is_globally_visible_target(objectId id) const
     {
         return global_objects_->contains(id) || id == grouped_objects::HEAP;
     }
 
-    static void merge_optional_global_state(std::optional<MayAnalysisState>& target,
-                                            MayAnalysisState                 source)
+    static void merge_optional_exit_export(std::optional<MayAnalysisState>& target,
+                                           MayAnalysisState                 source)
     {
         if (!target.has_value())
         {
@@ -533,7 +553,7 @@ struct FunctionContext
             return;
         }
 
-        utils::state_join_or_strict(target.value(), source);
+        utils::state_join_cfg(target.value(), source);
     }
 
     std::size_t fill_operands_id(const program::InstructionIR_sptr& instruction)
@@ -667,7 +687,7 @@ struct Impl
         }
     }
 
-    [[nodiscard]] std::optional<MayAnalysisState> merge_all_context_exports()
+    std::optional<MayAnalysisState> merge_all_context_exports()
     {
         std::optional<MayAnalysisState> next_global_state;
 
@@ -679,15 +699,14 @@ struct Impl
                 continue;
             }
 
-            merge_optional_global_state(next_global_state, std::move(exported.value()),
-                                        grouped_objects::CALL_ORDER_DISCREPANCY);
+            merge_optional_function_export(next_global_state, std::move(exported.value()));
         }
 
         return next_global_state;
     }
 
-    static void merge_optional_global_state(std::optional<MayAnalysisState>& target,
-                                            MayAnalysisState source, objectId marker)
+    static void merge_optional_function_export(std::optional<MayAnalysisState>& target,
+                                               MayAnalysisState                 source)
     {
         if (!target.has_value())
         {
@@ -695,7 +714,7 @@ struct Impl
             return;
         }
 
-        utils::state_join_or_strict(target.value(), source, marker);
+        utils::state_join_cfg(target.value(), source);
     }
 
     static bool update_global_state_if_needed(MayAnalysisState&               current_global_state,
@@ -728,6 +747,8 @@ struct Impl
 
 void LocalPointsToAnalysis::run(program::ProgramIR_sptr sala_ir)
 {
+    std::cout << "LPA STARTED" << std::endl;
     const auto trigger = Impl(std::move(sala_ir));
+    std::cout << "LPA ENDED" << std::endl;
 }
 } // namespace optimizer::passes

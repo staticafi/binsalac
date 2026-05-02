@@ -21,9 +21,6 @@ constexpr objectId VARGARG_BLOCK = -6;
 constexpr objectId ALLOCA        = -7;
 constexpr objectId HEAP          = -8;
 
-constexpr objectId MERGE_UNKNOWN          = -9;
-constexpr objectId CALL_ORDER_DISCREPANCY = -10;
-
 constexpr std::size_t ABSTRACT_TARGET_NODE_COUNT = 6;
 
 static constexpr std::array<objectId, ABSTRACT_TARGET_NODE_COUNT> ABSTRACT_TARGET_NODES = {
@@ -33,11 +30,6 @@ static constexpr std::array<objectId, ABSTRACT_TARGET_NODE_COUNT> ABSTRACT_TARGE
 constexpr inline bool is_concrete_object(const objectId id) noexcept
 {
     return id >= 0;
-}
-
-constexpr inline bool is_precision_marker(const objectId id) noexcept
-{
-    return id == grouped_objects::MERGE_UNKNOWN || id == grouped_objects::CALL_ORDER_DISCREPANCY;
 }
 
 constexpr inline bool is_summary_target(const objectId id) noexcept
