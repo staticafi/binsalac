@@ -13,17 +13,9 @@ namespace optimizer::utils::points_to
 {
 using MayTargetSet = optimizer::utils::SparseSet<Target>;
 
-enum class MayLossFlag : std::uint8_t
-{
-    None                 = 0U,
-    MergeUnknown         = 1U << 0U,
-    CallOrderDiscrepancy = 1U << 1U,
-};
-
 struct MayValue
 {
     bool         is_top{false};
-    std::uint8_t loss_flags{0};
     MayTargetSet targets{};
 
     static MayValue top() noexcept;
@@ -32,23 +24,8 @@ struct MayValue
     [[nodiscard]] bool        empty() const noexcept;
     [[nodiscard]] std::size_t size() const noexcept;
 
-    [[nodiscard]] bool has_loss() const noexcept;
-    [[nodiscard]] bool has_merge_unknown() const noexcept;
-    [[nodiscard]] bool has_call_order_discrepancy() const noexcept;
-
-    [[nodiscard]] bool is_singleton_precise_target() const noexcept;
-    [[nodiscard]] bool is_singleton_dereferenceable_target() const noexcept;
-    [[nodiscard]] bool is_must_fact() const noexcept;
-
-    [[nodiscard]] std::optional<Target> singleton_target() const noexcept;
-    [[nodiscard]] std::optional<Target> singleton_dereferenceable_target() const noexcept;
-    [[nodiscard]] std::optional<Target> must_fact() const noexcept;
-
     void clear_to_bottom() noexcept;
     void make_top() noexcept;
-
-    void add_merge_unknown() noexcept;
-    void add_call_order_discrepancy() noexcept;
 
     void insert(const Target& target);
     void insert(Target&& target);
@@ -86,7 +63,10 @@ struct hash<optimizer::utils::points_to::MayValue>
     std::size_t operator()(const optimizer::utils::points_to::MayValue& value) const noexcept
     {
         constexpr auto top_hash = 0x9d4e12c1ULL;
-        std::size_t    seed     = std::hash<std::uint8_t>{}(value.loss_flags);
+
+        std::size_t seed = 0U;
+        hash_combine(seed, std::hash<bool>{}(value.is_top));
+
         if (value.is_top)
         {
             hash_combine(seed, top_hash);
@@ -97,6 +77,7 @@ struct hash<optimizer::utils::points_to::MayValue>
         {
             hash_combine(seed, std::hash<optimizer::utils::points_to::Target>{}(target));
         }
+
         return seed;
     }
 };

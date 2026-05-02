@@ -22,23 +22,30 @@ using ObjectPool = utils::SparseMap<objectId, Object>;
 // Missing key == bottom for that particular cell.
 using MayState = SparseMap<objectId, MayValue>;
 
-// Solver / stored abstract state.
-// `poisoned == true` means: whole points-to state is invalidated.
+using MustState = SparseMap<objectId, Target>;
+
 struct MayAnalysisState
 {
-    MayState may{};
-    bool     poisoned{false};
+    MayState  may{};
+    MustState must{};
+    bool      poisoned{false};
 
     void clear() noexcept
     {
         may.clear();
+        must.clear();
         poisoned = false;
     }
 
     bool operator==(const MayAnalysisState& other) const
     {
-        return std::tie(poisoned, may) == std::tie(other.poisoned, other.may);
-    };
+        if (poisoned || other.poisoned)
+        {
+            return poisoned == other.poisoned;
+        }
+
+        return may == other.may && must == other.must;
+    }
 };
 
 struct ProgramPoint
@@ -69,14 +76,11 @@ bool is_objectId_reachable(const MayTransferContextBundle& context, objectId sou
                            objectId    target,
                            std::size_t max_depth = std::numeric_limits<std::size_t>::max());
 
-void state_join_or_relaxed(MayAnalysisState& A, const MayAnalysisState& B);
-
-void state_join_or_strict(MayAnalysisState& A, const MayAnalysisState& B,
-                          objectId extension_node = grouped_objects::MERGE_UNKNOWN);
+void state_join_cfg(MayAnalysisState& A, const MayAnalysisState& B);
 
 void dump_may_set(const MayAnalysisState& state);
 
-void dump_must_set(const MayState& must_in);
+void dump_must_set(const MustState& must_in);
 void dump_must_set(const MayAnalysisState& state);
 
 void handle_call_boundary(std::span<const objectId>       escaped_args,
@@ -97,6 +101,7 @@ constexpr static inline bool is_abstract(objectId node)
 inline void poison_may_state(MayAnalysisState& state) noexcept
 {
     state.may.clear();
+    state.must.clear();
     state.poisoned = true;
 }
 

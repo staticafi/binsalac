@@ -19,7 +19,7 @@ MayValue MayValue::singleton(Target target)
 
 bool MayValue::empty() const noexcept
 {
-    return !is_top && loss_flags == 0 && targets.empty();
+    return !is_top && targets.empty();
 }
 
 std::size_t MayValue::size() const noexcept
@@ -27,94 +27,16 @@ std::size_t MayValue::size() const noexcept
     return is_top ? 0U : targets.size();
 }
 
-bool MayValue::has_loss() const noexcept
-{
-    return !is_top && loss_flags != 0;
-}
-
-bool MayValue::has_merge_unknown() const noexcept
-{
-    return !is_top && (loss_flags & static_cast<std::uint8_t>(MayLossFlag::MergeUnknown)) != 0;
-}
-
-bool MayValue::has_call_order_discrepancy() const noexcept
-{
-    return !is_top &&
-           (loss_flags & static_cast<std::uint8_t>(MayLossFlag::CallOrderDiscrepancy)) != 0;
-}
-
-bool MayValue::is_singleton_precise_target() const noexcept
-{
-    return !is_top && loss_flags == 0 && targets.size() == 1;
-}
-
-bool MayValue::is_singleton_dereferenceable_target() const noexcept
-{
-    return is_singleton_precise_target() && can_have_state_cell(targets.begin()->id);
-}
-
-bool MayValue::is_must_fact() const noexcept
-{
-    return is_singleton_precise_target() && is_concrete_object(targets.begin()->id) &&
-           !(targets.begin()->offset_flag);
-}
-
-std::optional<Target> MayValue::singleton_target() const noexcept
-{
-    if (!is_singleton_precise_target())
-    {
-        return std::nullopt;
-    }
-    return *targets.begin();
-}
-
-std::optional<Target> MayValue::singleton_dereferenceable_target() const noexcept
-{
-    if (!is_singleton_dereferenceable_target())
-    {
-        return std::nullopt;
-    }
-    return *targets.begin();
-}
-
-std::optional<Target> MayValue::must_fact() const noexcept
-{
-    if (!is_must_fact())
-    {
-        return std::nullopt;
-    }
-
-    return *targets.begin();
-}
-
 void MayValue::clear_to_bottom() noexcept
 {
-    is_top     = false;
-    loss_flags = 0;
+    is_top = false;
     targets.clear();
 }
 
 void MayValue::make_top() noexcept
 {
-    is_top     = true;
-    loss_flags = 0;
+    is_top = true;
     targets.clear();
-}
-
-void MayValue::add_merge_unknown() noexcept
-{
-    if (!is_top)
-    {
-        loss_flags |= static_cast<std::uint8_t>(MayLossFlag::MergeUnknown);
-    }
-}
-
-void MayValue::add_call_order_discrepancy() noexcept
-{
-    if (!is_top)
-    {
-        loss_flags |= static_cast<std::uint8_t>(MayLossFlag::CallOrderDiscrepancy);
-    }
 }
 
 void MayValue::insert(const Target& target)
@@ -141,10 +63,8 @@ void MayValue::join_with(const MayValue& other)
         return;
     }
 
-    loss_flags |= other.loss_flags;
     targets.join_with(other.targets);
 }
-
 MayTargetSet::iterator MayValue::begin() noexcept
 {
     return targets.begin();
@@ -214,7 +134,8 @@ bool contains_only_objectId(const MayValue& value, const objectId id) noexcept
     {
         return false;
     }
-    return value.loss_flags == 0 && contains_only_objectId(value.targets, id);
+
+    return contains_only_objectId(value.targets, id);
 }
 
 std::ostream& operator<<(std::ostream& os, const MayValue& may_value)
@@ -230,24 +151,12 @@ std::ostream& operator<<(std::ostream& os, const MayValue& may_value)
     for (const auto& target : may_value.targets)
     {
         if (!first)
+        {
             os << ", ";
+        }
+
         os << target;
         first = false;
-    }
-
-    if (may_value.has_merge_unknown())
-    {
-        if (!first)
-            os << ", ";
-        os << "MERGE_UNKNOWN";
-        first = false;
-    }
-
-    if (may_value.has_call_order_discrepancy())
-    {
-        if (!first)
-            os << ", ";
-        os << "CALL_ORDER_DISCREPANCY";
     }
 
     return os << " }";
@@ -259,11 +168,12 @@ bool operator==(const MayValue& a, const MayValue& b)
     {
         return false;
     }
+
     if (a.is_top)
     {
         return true;
     }
-    return a.loss_flags == b.loss_flags && a.targets == b.targets;
-}
 
+    return a.targets == b.targets;
+}
 } // namespace optimizer::utils::points_to

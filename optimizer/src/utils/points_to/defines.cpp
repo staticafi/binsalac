@@ -1,10 +1,11 @@
-#include "optimizer/utils/points_to/nodes.hpp"
 #include <optimizer/utils/points_to/defines.hpp>
+#include <optimizer/utils/points_to/nodes.hpp>
 
 #include <iostream>
 #include <queue>
 #include <set>
 #include <span>
+#include <vector>
 
 namespace optimizer::utils::points_to
 {
@@ -38,10 +39,24 @@ bool is_observable_pointer_for_call_boundary(const objectId id)
     return id != grouped_objects::OUT_OF_LOCAL_SCOPE;
 }
 
-MayValue build_observable_payload_for_call_boundary(const std::span<const objectId> escaped_args,
-                                                    const MayTransferContextBundle& context)
+struct ObservablePayloadResult
 {
-    MayValue observable_payload = make_singleton(grouped_objects::OUT_OF_LOCAL_SCOPE, false);
+    MayValue payload{};
+    bool     saw_top{false};
+};
+
+struct ModifiableCellsResult
+{
+    std::vector<objectId> cells{};
+    bool                  saw_top{false};
+};
+
+ObservablePayloadResult
+build_observable_payload_for_call_boundary(const std::span<const objectId> escaped_args,
+                                           const MayTransferContextBundle& context)
+{
+    ObservablePayloadResult result{};
+    result.payload = make_singleton(grouped_objects::OUT_OF_LOCAL_SCOPE, false);
 
     utils::SparseSet<objectId> observable_seen;
     std::queue<objectId>       observable_wl;
@@ -61,13 +76,20 @@ MayValue build_observable_payload_for_call_boundary(const std::span<const object
 
         if (is_observable_pointer_for_call_boundary(current))
         {
-            observable_payload.insert(Target{current, false});
+            result.payload.insert(Target{current, false});
         }
 
         const auto it = context.state.may.find(current);
-        if (it == context.state.may.end() || it->second.is_top)
+        if (it == context.state.may.end())
         {
             continue;
+        }
+
+        if (it->second.is_top)
+        {
+            result.payload.make_top();
+            result.saw_top = true;
+            return result;
         }
 
         for (const auto& next : it->second)
@@ -77,7 +99,7 @@ MayValue build_observable_payload_for_call_boundary(const std::span<const object
                 continue;
             }
 
-            observable_payload.insert(next);
+            result.payload.insert(next);
 
             if (observable_seen.insert(next.id).second)
             {
@@ -86,24 +108,72 @@ MayValue build_observable_payload_for_call_boundary(const std::span<const object
         }
     }
 
-    return observable_payload;
+    return result;
 }
 
 std::vector<objectId>
+collect_all_modifiable_cells_for_call_boundary(const MayTransferContextBundle& context,
+                                               const bool unmodifiable_constants)
+{
+    std::vector<objectId>      result;
+    utils::SparseSet<objectId> seen;
+
+    const auto add_if_modifiable = [&](objectId id)
+    {
+        if (seen.contains(id))
+        {
+            return;
+        }
+
+        if (is_modifiable_target_for_call_boundary(id, context, unmodifiable_constants))
+        {
+            seen.insert(id);
+            result.push_back(id);
+        }
+    };
+
+    for (const auto& [id, _] : context.global_objects)
+    {
+        add_if_modifiable(id);
+    }
+
+    for (const auto& [id, _] : context.local_objects)
+    {
+        add_if_modifiable(id);
+    }
+
+    add_if_modifiable(grouped_objects::OUT_OF_GLOBAL_SCOPE);
+    add_if_modifiable(grouped_objects::VARGARG_BLOCK);
+    add_if_modifiable(grouped_objects::ALLOCA);
+    add_if_modifiable(grouped_objects::HEAP);
+
+    return result;
+}
+
+ModifiableCellsResult
 collect_modifiable_cells_for_call_boundary(const std::span<const objectId> escaped_args,
                                            const MayTransferContextBundle& context,
                                            const bool                      unmodifiable_constants)
 {
+    ModifiableCellsResult result{};
+
     utils::SparseSet<objectId> mod_seen;
     std::queue<objectId>       mod_wl;
-    std::vector<objectId>      mod_cells;
 
     for (const objectId escapee : escaped_args)
     {
         const auto it = context.state.may.find(escapee);
-        if (it == context.state.may.end() || it->second.is_top)
+        if (it == context.state.may.end())
         {
             continue;
+        }
+
+        if (it->second.is_top)
+        {
+            result.saw_top = true;
+            result.cells =
+                    collect_all_modifiable_cells_for_call_boundary(context, unmodifiable_constants);
+            return result;
         }
 
         for (const auto& tgt : it->second)
@@ -121,12 +191,20 @@ collect_modifiable_cells_for_call_boundary(const std::span<const objectId> escap
         const objectId current = mod_wl.front();
         mod_wl.pop();
 
-        mod_cells.push_back(current);
+        result.cells.push_back(current);
 
         const auto it = context.state.may.find(current);
-        if (it == context.state.may.end() || it->second.is_top)
+        if (it == context.state.may.end())
         {
             continue;
+        }
+
+        if (it->second.is_top)
+        {
+            result.saw_top = true;
+            result.cells =
+                    collect_all_modifiable_cells_for_call_boundary(context, unmodifiable_constants);
+            return result;
         }
 
         for (const auto& next : it->second)
@@ -139,7 +217,7 @@ collect_modifiable_cells_for_call_boundary(const std::span<const objectId> escap
         }
     }
 
-    return mod_cells;
+    return result;
 }
 
 void apply_observable_payload_to_modifiable_cells(const std::vector<objectId>& mod_cells,
@@ -153,13 +231,15 @@ void apply_observable_payload_to_modifiable_cells(const std::vector<objectId>& m
         {
             context.state.may.emplace(id, observable_payload);
         }
-        else if (!it->second.is_top)
+        else
         {
             it->second.join_with(observable_payload);
         }
+
+        // Calls are weak unknown external effects. Exactness of modified cells is lost.
+        context.state.must.erase(id);
     }
 }
-
 } // namespace
 
 bool is_constant_object(const ObjectPool& globals, const objectId id) noexcept
@@ -232,30 +312,27 @@ bool is_objectId_reachable(const MayTransferContextBundle& context, objectId sou
     return false;
 }
 
-void state_join_or_relaxed(MayAnalysisState& A, const MayAnalysisState& B)
+void must_join_and(MustState& A, const MustState& B)
 {
-    if (A.poisoned || B.poisoned)
+    std::vector<objectId> erase_later;
+
+    for (const auto& [cell, target] : A)
     {
-        poison_may_state(A);
-        return;
+        const auto other = B.find(cell);
+
+        if (other == B.end() || !(other->second == target))
+        {
+            erase_later.push_back(cell);
+        }
     }
 
-    for (const auto& [source, transfer] : B.may)
+    for (const objectId cell : erase_later)
     {
-        auto A_source_iter = A.may.find(source);
-        if (A_source_iter == A.may.end())
-        {
-            A.may.emplace(source, transfer);
-        }
-        else
-        {
-            A_source_iter->second.join_with(transfer);
-        }
+        A.erase(cell);
     }
 }
 
-void state_join_or_strict(MayAnalysisState& A, const MayAnalysisState& B,
-                          const objectId extension_node)
+void state_join_cfg(MayAnalysisState& A, const MayAnalysisState& B)
 {
     if (A.poisoned || B.poisoned)
     {
@@ -263,53 +340,23 @@ void state_join_or_strict(MayAnalysisState& A, const MayAnalysisState& B,
         return;
     }
 
-    const bool use_call_order_discrepancy =
-            extension_node == grouped_objects::CALL_ORDER_DISCREPANCY;
-
-    // Keys present in A but absent in B lose precision.
-    for (auto& [target, pointees] : A.may)
+    // May component: ordinary union/top join.
+    for (const auto& [cell, value] : B.may)
     {
-        if (!B.may.contains(target) && !pointees.is_top)
+        auto it = A.may.find(cell);
+        if (it == A.may.end())
         {
-            if (use_call_order_discrepancy)
-            {
-                pointees.add_call_order_discrepancy();
-            }
-            else
-            {
-                pointees.add_merge_unknown();
-            }
-        }
-    }
-
-    for (const auto& [source, transfer] : B.may)
-    {
-        auto source_iter = A.may.find(source);
-        if (source_iter == A.may.end())
-        {
-            if (transfer.is_top)
-            {
-                A.may.emplace(source, MayValue::top());
-            }
-            else
-            {
-                MayValue seeded = transfer;
-                if (use_call_order_discrepancy)
-                {
-                    seeded.add_call_order_discrepancy();
-                }
-                else
-                {
-                    seeded.add_merge_unknown();
-                }
-                A.may.insert_or_assign(source, std::move(seeded));
-            }
+            A.may.emplace(cell, value);
         }
         else
         {
-            source_iter->second.join_with(transfer);
+            it->second.join_with(value);
         }
     }
+
+    // Must component: strict agreement.
+    // A must fact survives only when both incoming states contain the same fact.
+    must_join_and(A.must, B.must);
 }
 
 void dump_may_set(const MayState& may_in)
@@ -338,21 +385,12 @@ void dump_may_set(const MayAnalysisState& state)
     dump_may_set(state.may);
 }
 
-void dump_must_set(const MayState& may_in)
+void dump_must_set(const MustState& must_in)
 {
-    std::cout << "========== DUMPING MAY =========== \n";
-    for (const auto& kvp : may_in)
+    std::cout << "========== DUMPING MUST =========== \n";
+    for (const auto& [cell, target] : must_in)
     {
-        const auto must_fact = kvp.second.must_fact();
-        if (must_fact.has_value())
-        {
-            std::cout << kvp.first << " = " << must_fact.value();
-        }
-        else
-        {
-            std::cout << kvp.first << " = nan";
-        }
-        std::cout << ";\n ";
+        std::cout << cell << " = " << target << ";\n ";
     }
     std::cout << "<<\n";
     std::cout << "^^^^^^^^^^^^^ END ^^^^^^^^^^^^^ \n";
@@ -369,7 +407,7 @@ void dump_must_set(const MayAnalysisState& state)
         return;
     }
 
-    dump_must_set(state.may);
+    dump_must_set(state.must);
 }
 
 void handle_call_boundary(const std::span<const objectId> escaped_args,
@@ -381,13 +419,19 @@ void handle_call_boundary(const std::span<const objectId> escaped_args,
         return;
     }
 
-    const MayValue observable_payload =
-            build_observable_payload_for_call_boundary(escaped_args, context);
+    auto observable = build_observable_payload_for_call_boundary(escaped_args, context);
 
-    const std::vector<objectId> mod_cells = collect_modifiable_cells_for_call_boundary(
-            escaped_args, context, unmodifiable_constants);
+    auto modifiable = collect_modifiable_cells_for_call_boundary(escaped_args, context,
+                                                                 unmodifiable_constants);
 
-    apply_observable_payload_to_modifiable_cells(mod_cells, observable_payload, context);
+    if (observable.saw_top || modifiable.saw_top)
+    {
+        observable.payload.make_top();
+        modifiable.cells =
+                collect_all_modifiable_cells_for_call_boundary(context, unmodifiable_constants);
+    }
+
+    apply_observable_payload_to_modifiable_cells(modifiable.cells, observable.payload, context);
 }
 
 std::size_t get_relevant_operands_count(const program::InstructionIR& instruction)
