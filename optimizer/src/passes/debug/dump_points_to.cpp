@@ -61,13 +61,10 @@ void dump_must_state(std::ostream& out, const utils::MayAnalysisState& state,
     }
     else
     {
-        for (const auto& kvp : state.may)
+        for (const auto& kvp : state.must)
         {
-            const auto must_fact = kvp.second.must_fact();
-            if (must_fact.has_value())
-            {
-                out << kvp.first << " -> " << must_fact.value() << "; ";
-            }
+            const auto must_fact = kvp.second;
+            out << kvp.first << " -> " << must_fact << "; ";
         }
     }
 

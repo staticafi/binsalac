@@ -249,7 +249,7 @@ class Impl
             return;
         }
 
-        utils::state_join_or_strict(target, source);
+        utils::state_join_cfg(target, source);
     }
 
     void apply_block_transfers(std::size_t block, MayAnalysisState& may)
@@ -371,7 +371,7 @@ class Impl
             return;
         }
 
-        utils::state_join_or_strict(program_may_out, exported_exit);
+        utils::state_join_cfg(program_may_out, exported_exit);
     }
 
     [[nodiscard]] MayAnalysisState
@@ -387,18 +387,19 @@ class Impl
 
         for (const auto& [object_id, _] : global_objects_)
         {
-            export_global_object_may(object_id, source, exported);
+            export_global_object_state_cell(object_id, source, exported);
             if (exported.poisoned)
             {
                 return exported;
             }
         }
 
+        export_global_object_state_cell(grouped_objects::HEAP, source, exported);
         return exported;
     }
 
-    void export_global_object_may(objectId object_id, const MayAnalysisState& source,
-                                  MayAnalysisState& exported) const
+    void export_global_object_state_cell(objectId object_id, const MayAnalysisState& source,
+                                         MayAnalysisState& exported) const
     {
         if (source.poisoned)
         {
@@ -407,19 +408,37 @@ class Impl
         }
 
         const auto source_iter = source.may.find(object_id);
-        if (source_iter == source.may.end())
+        if (source_iter != source.may.end())
         {
-            return;
+            auto projected = project_value_to_global_scope(source_iter->second);
+            if (!projected.empty())
+            {
+                exported.may.insert_or_assign(object_id, std::move(projected));
+            }
         }
 
-        auto projected = project_value_to_global_scope(source_iter->second);
-        if (!projected.empty())
+        const auto source_must_iter = source.must.find(object_id);
+        if (source_must_iter != source.must.end())
         {
-            exported.may.insert_or_assign(object_id, std::move(projected));
+            if (auto projected_must = project_must_to_global_scope(source_must_iter->second);
+                projected_must.has_value())
+            {
+                exported.must.insert_or_assign(object_id, projected_must.value());
+            }
         }
     }
 
-    [[nodiscard]] utils::MayValue project_value_to_global_scope(const utils::MayValue& value) const
+    std::optional<utils::Target> project_must_to_global_scope(const utils::Target& target) const
+    {
+        if (!target.offset_flag && global_objects_.contains(target.id))
+        {
+            return target;
+        }
+
+        return std::nullopt;
+    }
+
+    utils::MayValue project_value_to_global_scope(const utils::MayValue& value) const
     {
         if (value.is_top)
         {
@@ -427,7 +446,6 @@ class Impl
         }
 
         utils::MayValue projected{};
-        projected.loss_flags = value.loss_flags;
 
         for (const auto& target : value)
         {

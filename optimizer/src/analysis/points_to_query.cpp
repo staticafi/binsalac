@@ -118,7 +118,7 @@ inline PointsToResult make_poisoned_result()
     return result;
 }
 
-inline PointsToResult make_result_from_value(const MayValue* value)
+inline PointsToResult make_result_from_value(const MayValue* value, std::optional<Target> must)
 {
     PointsToResult result{};
 
@@ -131,7 +131,7 @@ inline PointsToResult make_result_from_value(const MayValue* value)
     }
 
     result.poisoned = false;
-    result.must     = value->must_fact();
+    result.must     = std::move(must);
     result.may      = value->targets;
     return result;
 }
@@ -144,8 +144,12 @@ inline PointsToResult make_result_from_state(const MayAnalysisState& state,
         return make_poisoned_result();
     }
 
-    const auto it = state.may.find(queried_id);
-    return make_result_from_value(it == state.may.end() ? nullptr : &it->second);
+    const auto may_it  = state.may.find(queried_id);
+    const auto must_it = state.must.find(queried_id);
+
+    return make_result_from_value(
+            may_it == state.may.end() ? nullptr : &may_it->second,
+            must_it == state.must.end() ? std::nullopt : std::optional<Target>{must_it->second});
 }
 
 } // namespace
