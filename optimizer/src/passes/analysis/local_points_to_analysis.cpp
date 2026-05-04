@@ -8,6 +8,7 @@
 #include <optimizer/programIR/instruction_ir.hpp>
 #include <optimizer/programIR/variable_ir.hpp>
 #include <optimizer/utils/points_to/import.hpp>
+#include <optimizer/utils/view/flattened_cfg_view.hpp>
 
 #include <utility/assumptions.hpp>
 #include <utility/timeprof.hpp>
@@ -28,11 +29,42 @@ using utils::objectId;
 
 namespace
 {
-struct FunctionContext
+
+// Free functions
+void merge_optional_function_export(std::optional<MayAnalysisState>& target,
+                                    MayAnalysisState                 source)
+{
+    if (!target.has_value())
+    {
+        target = std::move(source);
+        return;
+    }
+
+    utils::state_join_cfg(target.value(), source);
+}
+
+bool update_global_state_if_needed(MayAnalysisState&               current_global_state,
+                                   std::optional<MayAnalysisState> next_global_state)
+{
+    if (!next_global_state.has_value())
+    {
+        return true;
+    }
+
+    const bool fixpoint_reached = next_global_state.value() == current_global_state;
+    if (!fixpoint_reached)
+    {
+        utils::state_join_cfg(current_global_state, next_global_state.value());
+    }
+    return fixpoint_reached;
+}
+
+class FunctionContext
 {
   public:
     FunctionContext(std::size_t function_id, program::FunctionIR_sptr function, objectId id_start)
-        : function_id_{function_id}, function_{std::move(function)}, id_start_{id_start}
+        : function_id_{function_id}, function_{std::move(function)}, cfg_{function_},
+          id_start_{id_start}
     {
         ASSUMPTION(function_ != nullptr);
         ASSUMPTION(!function_->get_initializer_flag());
@@ -47,7 +79,7 @@ struct FunctionContext
 
     void materialize()
     {
-        for (std::size_t block = 0; block < block_count_; ++block)
+        for (std::size_t block = 0; block < cfg_.size(); ++block)
         {
             MayAnalysisState may_in{};
             build_in_state(block, may_in);
@@ -61,7 +93,7 @@ struct FunctionContext
     {
         std::optional<MayAnalysisState> result;
 
-        for (const auto exit_block : exit_blocks_)
+        for (const auto exit_block : cfg_.exit_blocks())
         {
             if (!is_solved_reachable_block(exit_block))
             {
@@ -81,8 +113,6 @@ struct FunctionContext
         load_global_data();
         init_states();
         init_local_objects();
-        build_flattened_cfg();
-        compute_reachable_blocks();
     }
 
     void load_global_data()
@@ -95,9 +125,8 @@ struct FunctionContext
 
     void init_states()
     {
-        block_count_ = function_->get_basic_blocks().size();
-        out_may_.reset(block_count_);
-        has_out_.assign(block_count_, false);
+        out_may_.reset(cfg_.size());
+        has_out_.assign(cfg_.size(), false);
         in_may_scratch_.clear();
     }
 
@@ -131,119 +160,15 @@ struct FunctionContext
         variable->get_metadata().set(std::move(points_to_meta));
     }
 
-    void build_flattened_cfg()
+    bool is_solved_reachable_block(std::size_t block) const
     {
-        collect_blocks();
-        build_block_indexing();
-        build_predecessor_lists_and_exit_blocks();
-        detect_entry_block();
-    }
-
-    void collect_blocks()
-    {
-        blocks_.clear();
-        blocks_.reserve(block_count_);
-
-        for (const auto& block : function_->get_basic_blocks())
-        {
-            blocks_.push_back(block);
-        }
-    }
-
-    void build_block_indexing()
-    {
-        index_of_.clear();
-        index_of_.reserve(block_count_);
-
-        for (std::size_t index = 0; index < block_count_; ++index)
-        {
-            index_of_[blocks_[index]] = index;
-        }
-    }
-
-    void build_predecessor_lists_and_exit_blocks()
-    {
-        preds_.assign(block_count_, {});
-        exit_blocks_.clear();
-
-        for (std::size_t block = 0; block < block_count_; ++block)
-        {
-            if (blocks_[block]->get_successors().empty())
-            {
-                exit_blocks_.insert(block);
-            }
-
-            for (const auto& weak_pred : blocks_[block]->get_predecessors())
-            {
-                auto pred = weak_pred.lock();
-                ASSUMPTION(pred != nullptr);
-                preds_[block].push_back(block_index(pred));
-            }
-        }
-    }
-
-    void detect_entry_block()
-    {
-        entry_ = 0;
-
-        if (auto entry_block = function_->get_entry_basic_block())
-        {
-            entry_ = block_index(entry_block);
-        }
-    }
-
-    [[nodiscard]] std::size_t block_index(const program::BasicBlockIR_sptr& block) const
-    {
-        const auto it = index_of_.find(block);
-        ASSUMPTION(it != index_of_.end());
-        return it->second;
-    }
-
-    void compute_reachable_blocks()
-    {
-        reachable_.assign(block_count_, false);
-        if (block_count_ == 0)
-        {
-            return;
-        }
-
-        std::queue<std::size_t> worklist;
-        reachable_[entry_] = true;
-        worklist.push(entry_);
-
-        while (!worklist.empty())
-        {
-            const auto block = worklist.front();
-            worklist.pop();
-
-            enqueue_new_reachable_successors(block, worklist);
-        }
-    }
-
-    void enqueue_new_reachable_successors(std::size_t block, std::queue<std::size_t>& worklist)
-    {
-        for (const auto& weak_succ : blocks_[block]->get_successors())
-        {
-            if (auto succ = weak_succ.lock())
-            {
-                const auto succ_index = block_index(succ);
-                if (!reachable_[succ_index])
-                {
-                    reachable_[succ_index] = true;
-                    worklist.push(succ_index);
-                }
-            }
-        }
-    }
-
-    [[nodiscard]] bool is_solved_reachable_block(std::size_t block) const
-    {
-        return reachable_[block] && has_out_[block];
+        return cfg_.reachable(block) && has_out_[block];
     }
 
     void solve()
     {
-        if (block_count_ == 0)
+        TMPROF_BLOCK()
+        if (cfg_.empty())
         {
             return;
         }
@@ -251,8 +176,8 @@ struct FunctionContext
         reset_solver_state();
 
         std::queue<std::size_t> worklist;
-        std::vector<bool>       in_worklist(block_count_, false);
-        enqueue_entry_if_reachable(worklist, in_worklist);
+        std::vector<bool>       in_worklist(cfg_.size(), false);
+        enqueue_entry(worklist, in_worklist);
 
         while (!worklist.empty())
         {
@@ -263,16 +188,10 @@ struct FunctionContext
 
     void reset_solver_state() { std::fill(has_out_.begin(), has_out_.end(), false); }
 
-    void enqueue_entry_if_reachable(std::queue<std::size_t>& worklist,
-                                    std::vector<bool>&       in_worklist) const
+    void enqueue_entry(std::queue<std::size_t>& worklist, std::vector<bool>& in_worklist) const
     {
-        if (!reachable_[entry_])
-        {
-            return;
-        }
-
-        worklist.push(entry_);
-        in_worklist[entry_] = true;
+        worklist.push(cfg_.entry());
+        in_worklist[cfg_.entry()] = true;
     }
 
     std::size_t pop_worklist(std::queue<std::size_t>& worklist,
@@ -294,11 +213,11 @@ struct FunctionContext
         if (block_out_changed(block, may))
         {
             commit_block_out_state(block, may);
-            enqueue_successors_if_reachable(block, worklist, in_worklist);
+            enqueue_successors(block, worklist, in_worklist);
         }
     }
 
-    [[nodiscard]] bool block_out_changed(std::size_t block, const MayAnalysisState& may) const
+    bool block_out_changed(std::size_t block, const MayAnalysisState& may) const
     {
         return !has_out_[block] || !out_may_.equals(block, may);
     }
@@ -320,7 +239,7 @@ struct FunctionContext
     void initialize_entry_seed_if_needed(std::size_t block, MayAnalysisState& may_in,
                                          bool& initialized) const
     {
-        if (block != entry_)
+        if (block != cfg_.entry())
         {
             return;
         }
@@ -348,7 +267,7 @@ struct FunctionContext
     void merge_available_predecessors(std::size_t block, MayAnalysisState& may_in,
                                       bool& initialized) const
     {
-        for (const auto pred : preds_[block])
+        for (const auto pred : cfg_.predecessors(block))
         {
             if (!has_out_[pred])
             {
@@ -359,24 +278,11 @@ struct FunctionContext
         }
     }
 
-    static void merge_state(MayAnalysisState& target, const MayAnalysisState& source,
-                            bool& initialized)
-    {
-        if (!initialized)
-        {
-            target      = source;
-            initialized = true;
-            return;
-        }
-
-        utils::state_join_cfg(target, source);
-    }
-
     void apply_block_transfers(std::size_t block, MayAnalysisState& may)
     {
         std::size_t instruction_id = 0;
 
-        for (const auto& instruction : blocks_[block]->get_instructions())
+        for (const auto& instruction : cfg_.block(block)->get_instructions())
         {
             apply_instruction_transfer(block, instruction_id, instruction, may);
             ++instruction_id;
@@ -416,22 +322,18 @@ struct FunctionContext
         may.clear();
     }
 
-    void enqueue_successors_if_reachable(std::size_t block, std::queue<std::size_t>& worklist,
-                                         std::vector<bool>& in_worklist) const
+    void enqueue_successors(std::size_t block, std::queue<std::size_t>& worklist,
+                            std::vector<bool>& in_worklist) const
     {
-        for (const auto& weak_succ : blocks_[block]->get_successors())
+        for (const auto succ : cfg_.successors(block))
         {
-            if (auto succ = weak_succ.lock())
+            if (in_worklist[succ])
             {
-                const auto succ_index = block_index(succ);
-                if (!reachable_[succ_index] || in_worklist[succ_index])
-                {
-                    continue;
-                }
-
-                worklist.push(succ_index);
-                in_worklist[succ_index] = true;
+                continue;
             }
+
+            worklist.push(succ);
+            in_worklist[succ] = true;
         }
     }
 
@@ -439,7 +341,7 @@ struct FunctionContext
     {
         auto bb_points_to_meta       = std::make_unique<metadata::points_to::BasicBlockMeta>();
         bb_points_to_meta->may_in_id = out_may_.store()->intern(std::move(may_in));
-        blocks_[block]->get_metadata().set(std::move(bb_points_to_meta));
+        cfg_.block(block)->get_metadata().set(std::move(bb_points_to_meta));
     }
 
     void attach_function_points_to_metadata()
@@ -503,8 +405,7 @@ struct FunctionContext
             }
         }
     }
-    [[nodiscard]] utils::MayValue
-    project_may_value_to_global_scope(const utils::MayValue& value) const
+    utils::MayValue project_may_value_to_global_scope(const utils::MayValue& value) const
     {
         if (value.is_top)
         {
@@ -592,40 +493,32 @@ struct FunctionContext
         ASSUMPTION(false);
     }
 
-    [[nodiscard]] bool accessed_undefined() const { return accessed_undefined_; }
-
   private:
-    bool                     accessed_undefined_{false};
-    objectId                 last_local_id_{0};
-    objectId                 id_start_{0};
-    std::size_t              function_id_{0};
-    program::FunctionIR_sptr function_;
+    objectId last_local_id_{0};
+
+    std::size_t                   function_id_{0};
+    program::FunctionIR_sptr      function_;
+    utils::view::FlattenedCFGView cfg_;
+    objectId                      id_start_{0};
 
     MayAnalysisState global_may_seed_;
 
     utils::ObjectPool* global_objects_{};
     utils::ObjectPool  local_objects_;
 
-    utils::SparseSet<objectId>    assumed_ptr_params_;
-    utils::SparseSet<std::size_t> exit_blocks_;
+    utils::SparseSet<objectId> assumed_ptr_params_;
 
     utils::BasicBlockMayStateSlots out_may_;
 
     MayAnalysisState      in_may_scratch_;
     std::vector<objectId> operands_id_scratch_;
 
-    std::size_t block_count_{0};
-    std::size_t entry_{0};
-
-    std::vector<bool>                                         reachable_;
-    std::vector<bool>                                         has_out_;
-    std::vector<program::BasicBlockIR_sptr>                   blocks_;
-    std::vector<std::vector<std::size_t>>                     preds_;
-    utils::SparseMap<program::BasicBlockIR_sptr, std::size_t> index_of_;
+    std::vector<bool> has_out_;
 };
 
-struct Impl
+class Impl
 {
+  public:
     explicit Impl(program::ProgramIR_sptr sala_ir) : sala_ir_{std::move(sala_ir)}
     {
         init_function_contexts();
@@ -656,6 +549,7 @@ struct Impl
 
     void run_function_contexts()
     {
+        TMPROF_BLOCK()
         if (contexts_.empty())
         {
             return;
@@ -672,7 +566,7 @@ struct Impl
         } while (!fixpoint_reached);
     }
 
-    [[nodiscard]] std::optional<MayAnalysisState>
+    std::optional<MayAnalysisState>
     compute_next_global_state(const MayAnalysisState& current_global_state)
     {
         run_all_contexts(current_global_state);
@@ -705,31 +599,6 @@ struct Impl
         return next_global_state;
     }
 
-    static void merge_optional_function_export(std::optional<MayAnalysisState>& target,
-                                               MayAnalysisState                 source)
-    {
-        if (!target.has_value())
-        {
-            target = std::move(source);
-            return;
-        }
-
-        utils::state_join_cfg(target.value(), source);
-    }
-
-    static bool update_global_state_if_needed(MayAnalysisState&               current_global_state,
-                                              std::optional<MayAnalysisState> next_global_state)
-    {
-        if (!next_global_state.has_value())
-        {
-            return true;
-        }
-
-        const bool fixpoint_reached = next_global_state.value() == current_global_state;
-        current_global_state        = std::move(next_global_state.value());
-        return fixpoint_reached;
-    }
-
     void materialize()
     {
         while (!contexts_.empty())
@@ -747,8 +616,7 @@ struct Impl
 
 void LocalPointsToAnalysis::run(program::ProgramIR_sptr sala_ir)
 {
-    std::cout << "LPA STARTED" << std::endl;
+    TMPROF_BLOCK()
     const auto trigger = Impl(std::move(sala_ir));
-    std::cout << "LPA ENDED" << std::endl;
 }
 } // namespace optimizer::passes
