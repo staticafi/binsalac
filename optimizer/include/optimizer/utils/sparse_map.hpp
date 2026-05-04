@@ -282,23 +282,6 @@ class SparseMap
 
     friend bool operator==(const SparseMap& lhs, const SparseMap& rhs) = default;
 
-  private:
-    storage_type data_{};
-
-    iterator lower_bound_(const key_type key) noexcept
-    {
-        return std::lower_bound(data_.begin(), data_.end(), key,
-                                [](const value_type& elem, const key_type k)
-                                { return elem.first < k; });
-    }
-
-    const_iterator lower_bound_(const key_type key) const noexcept
-    {
-        return std::lower_bound(data_.begin(), data_.end(), key,
-                                [](const value_type& elem, const key_type k)
-                                { return elem.first < k; });
-    }
-
     template <typename U>
     iterator insert_with_hint_(const_iterator hint, U&& value)
     {
@@ -345,6 +328,104 @@ class SparseMap
         }
 
         return insert(std::forward<U>(value)).first;
+    }
+
+    template <typename JoinValueFn>
+    void union_join_with(const SparseMap& other, JoinValueFn&& join_value)
+    {
+        storage_type result;
+        result.reserve(data_.size() + other.data_.size());
+
+        auto a = data_.begin();
+        auto b = other.data_.begin();
+
+        while (a != data_.end() && b != other.data_.end())
+        {
+            if (a->first < b->first)
+            {
+                result.push_back(std::move(*a));
+                ++a;
+            }
+            else if (b->first < a->first)
+            {
+                result.push_back(*b);
+                ++b;
+            }
+            else
+            {
+                value_type merged = std::move(*a);
+                join_value(merged.second, b->second);
+                result.push_back(std::move(merged));
+
+                ++a;
+                ++b;
+            }
+        }
+
+        while (a != data_.end())
+        {
+            result.push_back(std::move(*a));
+            ++a;
+        }
+
+        while (b != other.data_.end())
+        {
+            result.push_back(*b);
+            ++b;
+        }
+
+        data_ = std::move(result);
+    }
+
+    template <typename EqualValueFn>
+    void intersect_keep_equal_with(const SparseMap& other, EqualValueFn&& equal_value)
+    {
+        storage_type result;
+        result.reserve(std::min(data_.size(), other.data_.size()));
+
+        auto a = data_.begin();
+        auto b = other.data_.begin();
+
+        while (a != data_.end() && b != other.data_.end())
+        {
+            if (a->first < b->first)
+            {
+                ++a;
+            }
+            else if (b->first < a->first)
+            {
+                ++b;
+            }
+            else
+            {
+                if (equal_value(a->second, b->second))
+                {
+                    result.push_back(std::move(*a));
+                }
+
+                ++a;
+                ++b;
+            }
+        }
+
+        data_ = std::move(result);
+    }
+
+  private:
+    storage_type data_{};
+
+    iterator lower_bound_(const key_type key) noexcept
+    {
+        return std::lower_bound(data_.begin(), data_.end(), key,
+                                [](const value_type& elem, const key_type k)
+                                { return elem.first < k; });
+    }
+
+    const_iterator lower_bound_(const key_type key) const noexcept
+    {
+        return std::lower_bound(data_.begin(), data_.end(), key,
+                                [](const value_type& elem, const key_type k)
+                                { return elem.first < k; });
     }
 };
 
