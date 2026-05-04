@@ -214,8 +214,6 @@ void AvailableCopyQueryFunction::reconstruct_before_state(
         utils::apply_transfer(current_instruction, make_transfer_context(), cache_.in_state);
         ++current_instr_index;
     }
-
-    // ASSUMPTION(current_instr_index == get_instruction_index(instruction));
 }
 
 std::optional<std::size_t>
