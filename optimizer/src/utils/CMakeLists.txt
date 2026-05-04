@@ -13,6 +13,7 @@ set(SOURCE_FILES
 add_subdirectory(points_to)
 add_subdirectory(available_copy)
 add_subdirectory(liveness)
+add_subdirectory(view)
 
 target_sources(optimizer PRIVATE ${SOURCE_FILES} ${HEADER_FILES})
 
