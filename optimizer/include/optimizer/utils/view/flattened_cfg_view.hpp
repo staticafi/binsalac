@@ -14,6 +14,8 @@ class FlattenedCFGView
   public:
     explicit FlattenedCFGView(program::FunctionIR_sptr function);
 
+    void refresh();
+
     [[nodiscard]] bool        empty() const;
     [[nodiscard]] std::size_t size() const;
 
