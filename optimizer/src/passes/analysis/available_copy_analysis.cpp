@@ -11,8 +11,10 @@
 #include <optimizer/utils/available_copy/import.hpp>
 #include <optimizer/utils/dynamic_bitset.hpp>
 #include <optimizer/utils/sparse_map.hpp>
+#include <optimizer/utils/view/flattened_cfg_view.hpp>
 
 #include <utility/assumptions.hpp>
+#include <utility/timeprof.hpp>
 
 #include <cstddef>
 #include <memory>
@@ -26,7 +28,11 @@ namespace
 struct FunctionContext
 {
   public:
-    explicit FunctionContext(program::FunctionIR_sptr function) : function_{std::move(function)} {}
+    explicit FunctionContext(program::FunctionIR_sptr function)
+        : function_{std::move(function)}, cfg_{function_}
+    {
+        ASSUMPTION(function_ != nullptr);
+    }
 
     void run()
     {
@@ -38,7 +44,7 @@ struct FunctionContext
   private:
     using ReachabilityMatrix = std::vector<std::vector<bool>>;
 
-    [[nodiscard]] utils::TransferContext make_transfer_context() const
+    utils::TransferContext make_transfer_context() const
     {
         return utils::TransferContext{
                 .variable_ids    = variable_ids_,
@@ -53,7 +59,6 @@ struct FunctionContext
     void init_data()
     {
         collect_variables();
-        build_flattened_cfg();
         collect_facts();
         init_states();
     }
@@ -104,69 +109,6 @@ struct FunctionContext
         auto var_meta = std::make_unique<metadata::available_copy::VariableMeta>();
         var_meta->id  = it->second;
         variable->get_metadata().set(std::move(var_meta));
-    }
-
-    void build_flattened_cfg()
-    {
-        NB_ = function_->get_basic_blocks().size();
-
-        collect_blocks();
-        build_block_index();
-        build_predecessor_lists();
-        detect_entry_block();
-    }
-
-    void collect_blocks()
-    {
-        blocks_.clear();
-        blocks_.reserve(NB_);
-
-        for (const auto& bb : function_->get_basic_blocks())
-        {
-            blocks_.push_back(bb);
-        }
-    }
-
-    void build_block_index()
-    {
-        index_of_.clear();
-        index_of_.reserve(NB_);
-
-        for (std::size_t i = 0; i < NB_; ++i)
-        {
-            index_of_.emplace(blocks_[i].get(), i);
-        }
-    }
-
-    void build_predecessor_lists()
-    {
-        preds_.assign(NB_, {});
-
-        for (std::size_t i = 0; i < NB_; ++i)
-        {
-            for (const auto& wp : blocks_[i]->get_predecessors())
-            {
-                const auto sp = wp.lock();
-                ASSUMPTION(sp != nullptr);
-
-                const auto it = index_of_.find(sp.get());
-                ASSUMPTION(it != index_of_.end());
-
-                preds_[i].push_back(it->second);
-            }
-        }
-    }
-
-    void detect_entry_block()
-    {
-        entry_ = 0;
-
-        if (const auto entry_bb = function_->get_entry_basic_block(); entry_bb != nullptr)
-        {
-            const auto it = index_of_.find(entry_bb.get());
-            ASSUMPTION(it != index_of_.end());
-            entry_ = it->second;
-        }
     }
 
     void collect_facts()
@@ -236,7 +178,7 @@ struct FunctionContext
         variables_by_id_[it->second] = variable;
     }
 
-    [[nodiscard]] ReachabilityMatrix build_explicit_copy_reachability() const
+    ReachabilityMatrix build_explicit_copy_reachability() const
     {
         ReachabilityMatrix reach(NV_, std::vector<bool>(NV_, false));
 
@@ -418,9 +360,9 @@ struct FunctionContext
 
     void init_states()
     {
-        out_states_.assign(NB_, utils::DynamicBitset{facts_.size()});
+        out_states_.assign(cfg_.size(), utils::DynamicBitset{facts_.size()});
         in_state_scratch_.resize(facts_.size());
-        has_out_.assign(NB_, false);
+        has_out_.assign(cfg_.size(), false);
     }
 
     void build_in_state(const std::size_t b) { compute_joined_in_state(b, in_state_scratch_); }
@@ -431,13 +373,13 @@ struct FunctionContext
 
         bool has_ready_pred = false;
 
-        if (b == entry_)
+        if (b == cfg_.entry())
         {
             has_ready_pred = true;
         }
         else
         {
-            for (const auto pred : preds_[b])
+            for (const auto pred : cfg_.predecessors(b))
             {
                 if (!has_out_[pred])
                 {
@@ -462,14 +404,14 @@ struct FunctionContext
         }
     }
 
-    [[nodiscard]] bool has_ready_input_for_block(const std::size_t b) const
+    bool has_ready_input_for_block(const std::size_t b) const
     {
-        if (b == entry_)
+        if (b == cfg_.entry())
         {
             return true;
         }
 
-        for (const auto pred : preds_[b])
+        for (const auto pred : cfg_.predecessors(b))
         {
             if (has_out_[pred])
             {
@@ -488,7 +430,7 @@ struct FunctionContext
 
     void apply_block_transfer(const std::size_t b, utils::DynamicBitset& state) const
     {
-        for (const auto& instruction : blocks_[b]->get_instructions())
+        for (const auto& instruction : cfg_.block(b)->get_instructions())
         {
             apply_transfer(instruction, state);
         }
@@ -497,34 +439,29 @@ struct FunctionContext
     void enqueue_successors(const std::size_t b, std::queue<std::size_t>& worklist,
                             std::vector<char>& in_worklist) const
     {
-        for (const auto& weak_succ : blocks_[b]->get_successors())
+        for (const auto& succ : cfg_.successors(b))
         {
-            const auto succ = weak_succ.lock();
-            ASSUMPTION(succ != nullptr);
 
-            const auto it = index_of_.find(succ.get());
-            ASSUMPTION(it != index_of_.end());
-
-            if (!in_worklist[it->second])
+            if (!in_worklist[succ])
             {
-                worklist.push(it->second);
-                in_worklist[it->second] = 1;
+                worklist.push(succ);
+                in_worklist[succ] = 1;
             }
         }
     }
 
     void solve()
     {
-        if (NB_ == 0)
+        if (cfg_.empty())
         {
             return;
         }
 
         std::queue<std::size_t> worklist;
-        std::vector<char>       in_worklist(NB_, 0);
+        std::vector<char>       in_worklist(cfg_.size(), 0);
 
-        worklist.push(entry_);
-        in_worklist[entry_] = 1;
+        worklist.push(cfg_.entry());
+        in_worklist[cfg_.entry()] = 1;
 
         while (!worklist.empty())
         {
@@ -559,17 +496,17 @@ struct FunctionContext
 
     void materialize_basic_block_metadata()
     {
-        for (std::size_t b = 0; b < NB_; ++b)
+        for (std::size_t b = 0; b < cfg_.size(); ++b)
         {
             auto in_state = build_materialized_in_state(b);
 
             auto block_meta     = std::make_unique<metadata::available_copy::BasicBlockMeta>();
             block_meta->in_bits = in_state.words();
-            blocks_[b]->get_metadata().set(std::move(block_meta));
+            cfg_.block(b)->get_metadata().set(std::move(block_meta));
         }
     }
 
-    [[nodiscard]] utils::DynamicBitset build_materialized_in_state(const std::size_t b) const
+    utils::DynamicBitset build_materialized_in_state(const std::size_t b) const
     {
         utils::DynamicBitset in_state{facts_.size()};
         compute_joined_in_state(b, in_state);
@@ -587,15 +524,9 @@ struct FunctionContext
     }
 
   private:
-    program::FunctionIR_sptr function_;
-
-    std::size_t NB_{0};
-    std::size_t NV_{0};
-    std::size_t entry_{0};
-
-    std::vector<program::BasicBlockIR_sptr>                  blocks_;
-    std::vector<std::vector<std::size_t>>                    preds_;
-    utils::SparseMap<program::BasicBlockIR_raw, std::size_t> index_of_;
+    program::FunctionIR_sptr      function_;
+    utils::view::FlattenedCFGView cfg_;
+    std::size_t                   NV_{0};
 
     utils::SparseMap<std::size_t, program::VariableIR_sptr> variables_by_id_;
     utils::SparseMap<program::VariableIR_raw, std::size_t>  variable_ids_;
@@ -637,9 +568,8 @@ class Impl
 
 void AvailableCopyAnalysis::run(program::ProgramIR_sptr sala_ir)
 {
-    std::cout << "ACA: started" << std::endl;
+    TMPROF_BLOCK()
     const auto trigger = Impl(sala_ir);
-    std::cout << "ACA: done" << std::endl;
 }
 
 } // namespace optimizer::passes
