@@ -15,6 +15,11 @@ FlattenedCFGView::FlattenedCFGView(program::FunctionIR_sptr function)
     build();
 }
 
+void FlattenedCFGView::refresh()
+{
+    build();
+}
+
 bool FlattenedCFGView::empty() const
 {
     return blocks_.empty();
