@@ -7,10 +7,11 @@
 #include <optimizer/programIR/program_ir.hpp>
 #include <optimizer/programIR/variable_ir.hpp>
 #include <optimizer/utils/points_to/import.hpp>
+#include <optimizer/utils/view/flattened_cfg_view.hpp>
 
 #include <utility/assumptions.hpp>
+#include <utility/timeprof.hpp>
 
-#include <iostream>
 #include <memory>
 #include <queue>
 #include <unordered_map>
@@ -30,7 +31,8 @@ class Impl
 {
   public:
     explicit Impl(program::ProgramIR_sptr sala_ir)
-        : sala_ir_{std::move(sala_ir)}, static_init_{sala_ir_->get_static_initializer_func()}
+        : sala_ir_{std::move(sala_ir)}, static_init_{sala_ir_->get_static_initializer_func()},
+          cfg_{static_init_}
     {
         ASSUMPTION(sala_ir_ != nullptr);
         ASSUMPTION(static_init_ != nullptr);
@@ -41,7 +43,6 @@ class Impl
     void run()
     {
         init_object_data();
-        build_flattened_cfg();
         init_states();
         solve_static_initializer();
         materialize();
@@ -72,7 +73,6 @@ class Impl
         }
 
         last_local_id_ = id - 1;
-        block_count_   = static_init_->get_basic_blocks().size();
     }
 
     void register_constant_object(const program::ConstantIR_sptr& constant, objectId id)
@@ -97,84 +97,25 @@ class Impl
         variable->get_metadata().set(std::move(points_to_meta));
     }
 
-    void build_flattened_cfg()
-    {
-        collect_blocks();
-        build_block_indexing();
-        build_predecessor_lists();
-        detect_entry_block();
-    }
-
-    void collect_blocks()
-    {
-        blocks_.clear();
-        blocks_.reserve(block_count_);
-
-        for (const auto& block : static_init_->get_basic_blocks())
-        {
-            blocks_.push_back(block);
-        }
-    }
-
-    void build_block_indexing()
-    {
-        index_of_.clear();
-        index_of_.reserve(block_count_);
-
-        for (std::size_t index = 0; index < block_count_; ++index)
-        {
-            index_of_[blocks_[index]] = index;
-        }
-    }
-
-    void build_predecessor_lists()
-    {
-        preds_.assign(block_count_, {});
-
-        for (std::size_t block = 0; block < block_count_; ++block)
-        {
-            for (const auto& weak_pred : blocks_[block]->get_predecessors())
-            {
-                auto pred = weak_pred.lock();
-                ASSUMPTION(pred != nullptr);
-                preds_[block].push_back(block_index(pred));
-            }
-        }
-    }
-
-    void detect_entry_block()
-    {
-        const auto entry_block = static_init_->get_entry_basic_block();
-        ASSUMPTION(entry_block != nullptr);
-        entry_ = block_index(entry_block);
-    }
-
-    [[nodiscard]] std::size_t block_index(const program::BasicBlockIR_sptr& block) const
-    {
-        const auto it = index_of_.find(block);
-        ASSUMPTION(it != index_of_.end());
-        return it->second;
-    }
-
     void init_states()
     {
-        out_may_.reset(block_count_);
+        out_may_.reset(cfg_.size());
         in_may_scratch_.clear();
-        first_visit_.assign(block_count_, true);
+        first_visit_.assign(cfg_.size(), true);
     }
 
     void solve_static_initializer()
     {
-        if (block_count_ == 0)
+        if (cfg_.size() == 0)
         {
             return;
         }
 
         std::queue<std::size_t> worklist;
-        std::vector<char>       in_worklist(block_count_, 0);
+        std::vector<char>       in_worklist(cfg_.size(), 0);
 
-        worklist.push(entry_);
-        in_worklist[entry_] = 1;
+        worklist.push(cfg_.entry());
+        in_worklist[cfg_.entry()] = 1;
 
         while (!worklist.empty())
         {
@@ -213,7 +154,7 @@ class Impl
 
     void mark_block_visited(std::size_t block) { first_visit_[block] = false; }
 
-    [[nodiscard]] bool block_out_changed(std::size_t block, const MayAnalysisState& may) const
+    bool block_out_changed(std::size_t block, const MayAnalysisState& may) const
     {
         return first_visit_[block] || !out_may_.equals(block, may);
     }
@@ -223,7 +164,7 @@ class Impl
         may.clear();
 
         bool initialized = false;
-        for (const auto pred : preds_[block])
+        for (const auto pred : cfg_.predecessors(block))
         {
             if (first_visit_[pred])
             {
@@ -239,24 +180,11 @@ class Impl
         }
     }
 
-    static void merge_state(MayAnalysisState& target, const MayAnalysisState& source,
-                            bool& initialized)
-    {
-        if (!initialized)
-        {
-            target      = source;
-            initialized = true;
-            return;
-        }
-
-        utils::state_join_cfg(target, source);
-    }
-
     void apply_block_transfers(std::size_t block, MayAnalysisState& may)
     {
         std::size_t instruction_id = 0;
 
-        for (const auto& instruction : blocks_[block]->get_instructions())
+        for (const auto& instruction : cfg_.block(block)->get_instructions())
         {
             apply_instruction_transfer(block, instruction_id, instruction, may);
             ++instruction_id;
@@ -298,25 +226,21 @@ class Impl
     void enqueue_successors(std::size_t block, std::queue<std::size_t>& worklist,
                             std::vector<char>& in_worklist) const
     {
-        for (const auto& weak_succ : blocks_[block]->get_successors())
+        for (const auto succ : cfg_.successors(block))
         {
-            if (auto succ = weak_succ.lock())
+            if (in_worklist[succ])
             {
-                const auto succ_index = block_index(succ);
-                if (in_worklist[succ_index])
-                {
-                    continue;
-                }
-
-                worklist.push(succ_index);
-                in_worklist[succ_index] = 1;
+                continue;
             }
+
+            worklist.push(succ);
+            in_worklist[succ] = 1;
         }
     }
 
     void materialize()
     {
-        if (block_count_ == 0)
+        if (cfg_.empty())
         {
             return;
         }
@@ -333,13 +257,13 @@ class Impl
     {
         bool first_exit_found = false;
 
-        for (std::size_t block = 0; block < block_count_; ++block)
+        for (std::size_t block = 0; block < cfg_.size(); ++block)
         {
             MayAnalysisState in_may{};
             build_in_state(block, in_may);
             attach_block_points_to_metadata(block, in_may);
 
-            if (is_exit_block(block))
+            if (cfg_.is_exit_block(block))
             {
                 merge_exit_block_into_program_summary(block, program_points_to_meta.may_out,
                                                       first_exit_found);
@@ -351,12 +275,7 @@ class Impl
     {
         auto bb_points_to_meta       = std::make_unique<metadata::points_to::BasicBlockMeta>();
         bb_points_to_meta->may_in_id = out_may_.store()->intern(in_may);
-        blocks_[block]->get_metadata().set(std::move(bb_points_to_meta));
-    }
-
-    [[nodiscard]] bool is_exit_block(std::size_t block) const
-    {
-        return blocks_[block]->get_successors().empty();
+        cfg_.block(block)->get_metadata().set(std::move(bb_points_to_meta));
     }
 
     void merge_exit_block_into_program_summary(std::size_t block, MayAnalysisState& program_may_out,
@@ -374,8 +293,7 @@ class Impl
         utils::state_join_cfg(program_may_out, exported_exit);
     }
 
-    [[nodiscard]] MayAnalysisState
-    export_static_initializer_state(const MayAnalysisState& source) const
+    MayAnalysisState export_static_initializer_state(const MayAnalysisState& source) const
     {
         MayAnalysisState exported{};
 
@@ -462,7 +380,7 @@ class Impl
         return projected;
     }
 
-    [[nodiscard]] bool is_globally_visible_target(objectId id) const
+    bool is_globally_visible_target(objectId id) const
     {
         return global_objects_.contains(id) || id == grouped_objects::HEAP;
     }
@@ -512,8 +430,9 @@ class Impl
     }
 
   private:
-    program::ProgramIR_sptr  sala_ir_;
-    program::FunctionIR_sptr static_init_;
+    program::ProgramIR_sptr       sala_ir_;
+    program::FunctionIR_sptr      static_init_;
+    utils::view::FlattenedCFGView cfg_;
 
     MayAnalysisState in_may_scratch_;
 
@@ -527,20 +446,13 @@ class Impl
 
     utils::BasicBlockMayStateSlots out_may_;
 
-    std::size_t block_count_{0};
-    std::size_t entry_{0};
-
-    std::vector<bool>                                           first_visit_;
-    std::vector<program::BasicBlockIR_sptr>                     blocks_;
-    std::vector<std::vector<std::size_t>>                       preds_;
-    std::unordered_map<program::BasicBlockIR_sptr, std::size_t> index_of_;
+    std::vector<bool> first_visit_;
 };
 } // namespace
 
 void GlobalPointsToAnalysis::run(program::ProgramIR_sptr sala_ir)
 {
-    std::cout << "GPA: started" << std::endl;
+    TMPROF_BLOCK()
     const auto trigger = Impl(std::move(sala_ir));
-    std::cout << "GPA: done" << std::endl;
 }
 } // namespace optimizer::passes
