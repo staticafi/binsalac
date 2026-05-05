@@ -1,21 +1,22 @@
-#include <sala2sala/program_options.hpp>
 #include <sala2sala/program_info.hpp>
+#include <sala2sala/program_options.hpp>
 #include <utility/assumptions.hpp>
 
-program_options::program_options(int argc, char* argv[])
-    : program_options_default(argc, argv)
+program_options::program_options(int argc, char* argv[]) : program_options_default(argc, argv)
 {
     add_option("input", "Pathname to the input Sala file (.json).", "1");
     add_option("output", "Pathname to the output Sala file (.json).", "1");
-    add_option("jsonc", "When specified a Sala file with dbg lines (.jsonc) is saved as well.", "0");
+    add_option("jsonc", "When specified a Sala file with dbg lines (.jsonc) is saved as well.",
+               "0");
+    add_option("pipeline", "Optimizer pipeline to run. Supported values: exp, exp_debug.", "1");
 }
 
-static program_options_ptr  global_program_options;
+static program_options_ptr global_program_options;
 
 void initialise_program_options(int argc, char* argv[])
 {
     ASSUMPTION(!global_program_options.operator bool());
-    global_program_options = program_options_ptr(new program_options(argc,argv));
+    global_program_options = program_options_ptr(new program_options(argc, argv));
 }
 
 program_options_ptr get_program_options()

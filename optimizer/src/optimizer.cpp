@@ -3,6 +3,7 @@
 #include <optimizer/translation/ir_to_sala.hpp>
 #include <optimizer/translation/sala_to_ir.hpp>
 
+#include <optimizer/pipeline/pipeline_factory.hpp>
 #include <optimizer/pipeline/pipelines.hpp>
 
 #include <utility/assumptions.hpp>
@@ -12,13 +13,22 @@
 
 namespace optimizer
 {
+Optimizer::Optimizer(OptimizerConfig config) : config_(config)
+{
+}
+
 std::shared_ptr<sala::Program> Optimizer::run(std::shared_ptr<sala::Program> program)
 {
-    // TODO: enable user setting of pipeline
-    pipeline_mgr_.set_pipeline(std::make_unique<pipeline::ReleasePipeline>(std::move(program)));
+    if (!config_.pipeline.has_value())
+    {
+        return program;
+    }
+
+    pipeline_mgr_.set_pipeline(
+            pipeline::create_pipeline(config_.pipeline.value(), std::move(program)));
+
     pipeline_mgr_.run();
     ASSUMPTION(std::holds_alternative<std::shared_ptr<sala::Program>>(pipeline_mgr_.program()));
     return std::get<std::shared_ptr<sala::Program>>(pipeline_mgr_.program());
 }
-
 } // namespace optimizer

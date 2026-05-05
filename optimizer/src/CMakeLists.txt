@@ -9,6 +9,7 @@ set(SOURCE_FILES
 )
 
 set(HEADER_FILES
+    ${INCLUDE_DIR}/config.hpp
     ${INCLUDE_DIR}/optimizer.hpp
 )
 
