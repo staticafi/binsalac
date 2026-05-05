@@ -314,22 +314,7 @@ bool is_objectId_reachable(const MayTransferContextBundle& context, objectId sou
 
 void must_join_and(MustState& A, const MustState& B)
 {
-    std::vector<objectId> erase_later;
-
-    for (const auto& [cell, target] : A)
-    {
-        const auto other = B.find(cell);
-
-        if (other == B.end() || !(other->second == target))
-        {
-            erase_later.push_back(cell);
-        }
-    }
-
-    for (const objectId cell : erase_later)
-    {
-        A.erase(cell);
-    }
+    A.intersect_keep_equal_with(B, [](const Target& lhs, const Target& rhs) { return lhs == rhs; });
 }
 
 void state_join_cfg(MayAnalysisState& A, const MayAnalysisState& B)
@@ -341,18 +326,7 @@ void state_join_cfg(MayAnalysisState& A, const MayAnalysisState& B)
     }
 
     // May component: ordinary union/top join.
-    for (const auto& [cell, value] : B.may)
-    {
-        auto it = A.may.find(cell);
-        if (it == A.may.end())
-        {
-            A.may.emplace(cell, value);
-        }
-        else
-        {
-            it->second.join_with(value);
-        }
-    }
+    A.may.union_join_with(B.may, [](MayValue& lhs, const MayValue& rhs) { lhs.join_with(rhs); });
 
     // Must component: strict agreement.
     // A must fact survives only when both incoming states contain the same fact.
@@ -408,6 +382,18 @@ void dump_must_set(const MayAnalysisState& state)
     }
 
     dump_must_set(state.must);
+}
+
+void merge_state(MayAnalysisState& target, const MayAnalysisState& source, bool& initialized)
+{
+    if (!initialized)
+    {
+        target      = source;
+        initialized = true;
+        return;
+    }
+
+    state_join_cfg(target, source);
 }
 
 void handle_call_boundary(const std::span<const objectId> escaped_args,
