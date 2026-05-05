@@ -44,7 +44,7 @@ struct MayAnalysisState
             return poisoned == other.poisoned;
         }
 
-        return may == other.may && must == other.must;
+        return must == other.must && may == other.may;
     }
 };
 
@@ -78,6 +78,8 @@ bool is_objectId_reachable(const MayTransferContextBundle& context, objectId sou
 
 void state_join_cfg(MayAnalysisState& A, const MayAnalysisState& B);
 
+void merge_state(MayAnalysisState& target, const MayAnalysisState& source, bool& initialized);
+
 void dump_may_set(const MayAnalysisState& state);
 
 void dump_must_set(const MustState& must_in);
@@ -93,7 +95,7 @@ constexpr static inline bool is_abstract(objectId node)
     return node < 0;
 }
 
-[[nodiscard]] inline bool is_poisoned(const MayAnalysisState& state) noexcept
+inline bool is_poisoned(const MayAnalysisState& state) noexcept
 {
     return state.poisoned;
 }
