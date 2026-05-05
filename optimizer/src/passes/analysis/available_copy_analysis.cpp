@@ -1,4 +1,3 @@
-#include <iostream>
 #include <optimizer/passes/analysis/available_copy_analysis.hpp>
 
 #include <optimizer/metadata/available_copy.hpp>
@@ -19,13 +18,48 @@
 #include <cstddef>
 #include <memory>
 #include <queue>
+#include <utility>
+#include <variant>
 #include <vector>
 
 namespace optimizer::passes
 {
 namespace
 {
-struct FunctionContext
+
+bool is_valid_copy_instruction(const program::InstructionIR_sptr& instruction)
+{
+    if (instruction == nullptr)
+    {
+        return false;
+    }
+
+    if (instruction->get_opcode() != sala::Instruction::Opcode::COPY)
+    {
+        return false;
+    }
+
+    return instruction->get_operands().size() >= 2U;
+}
+
+bool is_valid_copy_operand_pair(const program::VariableIR_raw* dest,
+                                const program::VariableIR_raw* src)
+{
+    return dest != nullptr && src != nullptr && *dest != nullptr && *src != nullptr;
+}
+
+bool can_form_copy_fact(program::VariableIR_raw dest, program::VariableIR_raw src,
+                        std::size_t dest_id, std::size_t src_id)
+{
+    if (dest_id == src_id)
+    {
+        return false;
+    }
+
+    return dest->get_num_bytes() == src->get_num_bytes();
+}
+
+class FunctionContext
 {
   public:
     explicit FunctionContext(program::FunctionIR_sptr function)
@@ -43,6 +77,28 @@ struct FunctionContext
 
   private:
     using ReachabilityMatrix = std::vector<std::vector<bool>>;
+
+    template <typename Fn>
+    void for_each_variable(Fn&& fn) const
+    {
+        const auto program = function_->get_program();
+        ASSUMPTION(program != nullptr);
+
+        for (const auto& static_var : program->get_static_vars())
+        {
+            fn(static_var);
+        }
+
+        for (const auto& parameter : function_->get_parameters())
+        {
+            fn(parameter);
+        }
+
+        for (const auto& local : function_->get_local_variables())
+        {
+            fn(local);
+        }
+    }
 
     utils::TransferContext make_transfer_context() const
     {
@@ -68,36 +124,8 @@ struct FunctionContext
         variable_ids_.clear();
         NV_ = 0;
 
-        const auto program = function_->get_program();
-        ASSUMPTION(program != nullptr);
-
-        collect_program_static_variables(*program);
-        collect_function_parameters();
-        collect_function_locals();
-    }
-
-    void collect_program_static_variables(const program::ProgramIR& program)
-    {
-        for (const auto& static_var : program.get_static_vars())
-        {
-            add_variable(static_var);
-        }
-    }
-
-    void collect_function_parameters()
-    {
-        for (const auto& parameter : function_->get_parameters())
-        {
-            add_variable(parameter);
-        }
-    }
-
-    void collect_function_locals()
-    {
-        for (const auto& local : function_->get_local_variables())
-        {
-            add_variable(local);
-        }
+        for_each_variable([this](const program::VariableIR_sptr& variable)
+                          { add_variable(variable); });
     }
 
     void add_variable(const program::VariableIR_sptr& variable)
@@ -126,6 +154,7 @@ struct FunctionContext
     {
         facts_.clear();
         fact_id_of_.clear();
+
         facts_by_dest_.assign(NV_, {});
         facts_by_source_.assign(NV_, {});
         kill_masks_.assign(NV_, utils::DynamicBitset{});
@@ -135,36 +164,8 @@ struct FunctionContext
 
     void build_variables_by_id()
     {
-        const auto program = function_->get_program();
-        ASSUMPTION(program != nullptr);
-
-        register_program_static_variables_by_id(*program);
-        register_function_parameters_by_id();
-        register_function_locals_by_id();
-    }
-
-    void register_program_static_variables_by_id(const program::ProgramIR& program)
-    {
-        for (const auto& static_var : program.get_static_vars())
-        {
-            register_variable_by_id(static_var);
-        }
-    }
-
-    void register_function_parameters_by_id()
-    {
-        for (const auto& parameter : function_->get_parameters())
-        {
-            register_variable_by_id(parameter);
-        }
-    }
-
-    void register_function_locals_by_id()
-    {
-        for (const auto& local : function_->get_local_variables())
-        {
-            register_variable_by_id(local);
-        }
+        for_each_variable([this](const program::VariableIR_sptr& variable)
+                          { register_variable_by_id(variable); });
     }
 
     void register_variable_by_id(const program::VariableIR_sptr& variable)
@@ -196,26 +197,17 @@ struct FunctionContext
     void add_explicit_copy_edge(const program::InstructionIR_sptr& instruction,
                                 ReachabilityMatrix&                reach) const
     {
-        if (instruction == nullptr)
-        {
-            return;
-        }
-
-        if (instruction->get_opcode() != sala::Instruction::Opcode::COPY)
+        if (!is_valid_copy_instruction(instruction))
         {
             return;
         }
 
         const auto& operands = instruction->get_operands();
-        if (operands.size() < 2U)
-        {
-            return;
-        }
 
         const auto* dest = std::get_if<program::VariableIR_raw>(&operands[0]);
         const auto* src  = std::get_if<program::VariableIR_raw>(&operands[1]);
 
-        if (dest == nullptr || src == nullptr || *dest == nullptr || *src == nullptr)
+        if (!is_valid_copy_operand_pair(dest, src))
         {
             return;
         }
@@ -231,12 +223,7 @@ struct FunctionContext
         const auto dest_id = dest_it->second;
         const auto src_id  = src_it->second;
 
-        if (dest_id == src_id)
-        {
-            return;
-        }
-
-        if ((*dest)->get_num_bytes() != (*src)->get_num_bytes())
+        if (!can_form_copy_fact(*dest, *src, dest_id, src_id))
         {
             return;
         }
@@ -247,7 +234,7 @@ struct FunctionContext
     void compute_transitive_closure(ReachabilityMatrix& reach) const
     {
         // If X <- Y and Y <- Z are possible facts, then X <- Z must also belong
-        // to the universe so bridge_through_redefined_variable can activate it later.
+        // to the universe so it can be activated later.
         for (std::size_t mid = 0; mid < NV_; ++mid)
         {
             for (std::size_t dst = 0; dst < NV_; ++dst)
@@ -257,72 +244,81 @@ struct FunctionContext
                     continue;
                 }
 
-                for (std::size_t src = 0; src < NV_; ++src)
-                {
-                    if (!reach[mid][src])
-                    {
-                        continue;
-                    }
-
-                    if (dst == src)
-                    {
-                        continue;
-                    }
-
-                    ASSUMPTION(variables_by_id_.at(dst) != nullptr);
-                    ASSUMPTION(variables_by_id_.at(src) != nullptr);
-
-                    if (variables_by_id_.at(dst)->get_num_bytes() !=
-                        variables_by_id_.at(src)->get_num_bytes())
-                    {
-                        continue;
-                    }
-
-                    reach[dst][src] = true;
-                }
+                add_transitive_reachability_through_mid(dst, mid, reach);
             }
         }
+    }
+
+    void add_transitive_reachability_through_mid(std::size_t dst, std::size_t mid,
+                                                 ReachabilityMatrix& reach) const
+    {
+        for (std::size_t src = 0; src < NV_; ++src)
+        {
+            if (!reach[mid][src])
+            {
+                continue;
+            }
+
+            if (!can_materialize_transitive_fact(dst, src))
+            {
+                continue;
+            }
+
+            reach[dst][src] = true;
+        }
+    }
+
+    bool can_materialize_transitive_fact(std::size_t dst, std::size_t src) const
+    {
+        if (dst == src)
+        {
+            return false;
+        }
+
+        ASSUMPTION(variables_by_id_.at(dst) != nullptr);
+        ASSUMPTION(variables_by_id_.at(src) != nullptr);
+
+        return variables_by_id_.at(dst)->get_num_bytes() ==
+               variables_by_id_.at(src)->get_num_bytes();
     }
 
     void materialize_facts_from_reachability(const ReachabilityMatrix& reach)
     {
         for (std::size_t dest_id = 0; dest_id < NV_; ++dest_id)
         {
-            materialize_facts_for_dest(dest_id, reach);
+            for (std::size_t src_id = 0; src_id < NV_; ++src_id)
+            {
+                if (reach[dest_id][src_id])
+                {
+                    add_copy_fact(dest_id, src_id);
+                }
+            }
         }
     }
 
-    void materialize_facts_for_dest(const std::size_t dest_id, const ReachabilityMatrix& reach)
+    void add_copy_fact(std::size_t dest_id, std::size_t src_id)
     {
-        for (std::size_t src_id = 0; src_id < NV_; ++src_id)
-        {
-            if (!reach[dest_id][src_id])
-            {
-                continue;
-            }
+        ASSUMPTION(dest_id < variables_by_id_.size());
+        ASSUMPTION(src_id < variables_by_id_.size());
+        ASSUMPTION(variables_by_id_[dest_id] != nullptr);
+        ASSUMPTION(variables_by_id_[src_id] != nullptr);
 
-            ASSUMPTION(dest_id < variables_by_id_.size());
-            ASSUMPTION(src_id < variables_by_id_.size());
-            ASSUMPTION(variables_by_id_[dest_id] != nullptr);
-            ASSUMPTION(variables_by_id_[src_id] != nullptr);
+        const auto fact_id = facts_.size();
 
-            const auto fact_id = facts_.size();
+        facts_.push_back(utils::CopyFact{
+                .id        = fact_id,
+                .dest_id   = dest_id,
+                .source_id = src_id,
+                .dest      = variables_by_id_[dest_id].get(),
+                .source    = variables_by_id_[src_id].get(),
+        });
 
-            facts_.push_back(utils::CopyFact{
-                    .id        = fact_id,
-                    .dest_id   = dest_id,
-                    .source_id = src_id,
-                    .dest      = variables_by_id_[dest_id].get(),
-                    .source    = variables_by_id_[src_id].get(),
-            });
-
-            fact_id_of_.emplace(
-                    utils::CopyFactKey{
-                            .dest_id   = dest_id,
-                            .source_id = src_id,
-                    },
-                    fact_id);
-        }
+        fact_id_of_.emplace(
+                utils::CopyFactKey{
+                        .dest_id   = dest_id,
+                        .source_id = src_id,
+                },
+                fact_id);
     }
 
     void build_fact_indexes_and_kill_masks()
@@ -365,91 +361,6 @@ struct FunctionContext
         has_out_.assign(cfg_.size(), false);
     }
 
-    void build_in_state(const std::size_t b) { compute_joined_in_state(b, in_state_scratch_); }
-
-    void compute_joined_in_state(const std::size_t b, utils::DynamicBitset& state) const
-    {
-        state.reset();
-
-        bool has_ready_pred = false;
-
-        if (b == cfg_.entry())
-        {
-            has_ready_pred = true;
-        }
-        else
-        {
-            for (const auto pred : cfg_.predecessors(b))
-            {
-                if (!has_out_[pred])
-                {
-                    continue;
-                }
-
-                if (!has_ready_pred)
-                {
-                    state          = out_states_[pred];
-                    has_ready_pred = true;
-                }
-                else
-                {
-                    state.and_with(out_states_[pred]);
-                }
-            }
-        }
-
-        if (!has_ready_pred)
-        {
-            state.reset();
-        }
-    }
-
-    bool has_ready_input_for_block(const std::size_t b) const
-    {
-        if (b == cfg_.entry())
-        {
-            return true;
-        }
-
-        for (const auto pred : cfg_.predecessors(b))
-        {
-            if (has_out_[pred])
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    void apply_transfer(const program::InstructionIR_sptr& instruction,
-                        utils::DynamicBitset&              state) const
-    {
-        utils::apply_transfer(instruction, make_transfer_context(), state);
-    }
-
-    void apply_block_transfer(const std::size_t b, utils::DynamicBitset& state) const
-    {
-        for (const auto& instruction : cfg_.block(b)->get_instructions())
-        {
-            apply_transfer(instruction, state);
-        }
-    }
-
-    void enqueue_successors(const std::size_t b, std::queue<std::size_t>& worklist,
-                            std::vector<char>& in_worklist) const
-    {
-        for (const auto& succ : cfg_.successors(b))
-        {
-
-            if (!in_worklist[succ])
-            {
-                worklist.push(succ);
-                in_worklist[succ] = 1;
-            }
-        }
-    }
-
     void solve()
     {
         if (cfg_.empty())
@@ -460,31 +371,145 @@ struct FunctionContext
         std::queue<std::size_t> worklist;
         std::vector<char>       in_worklist(cfg_.size(), 0);
 
-        worklist.push(cfg_.entry());
-        in_worklist[cfg_.entry()] = 1;
+        enqueue_entry(worklist, in_worklist);
 
         while (!worklist.empty())
         {
-            const auto b = worklist.front();
-            worklist.pop();
-            in_worklist[b] = 0;
+            process_next_block(worklist, in_worklist);
+        }
+    }
 
-            build_in_state(b);
+    void enqueue_entry(std::queue<std::size_t>& worklist, std::vector<char>& in_worklist) const
+    {
+        worklist.push(cfg_.entry());
+        in_worklist[cfg_.entry()] = 1;
+    }
 
-            if (!has_ready_input_for_block(b))
+    void process_next_block(std::queue<std::size_t>& worklist, std::vector<char>& in_worklist)
+    {
+        const auto block = pop_worklist(worklist, in_worklist);
+
+        build_in_state(block);
+
+        if (!has_ready_input_for_block(block))
+        {
+            return;
+        }
+
+        auto new_out = in_state_scratch_;
+        apply_block_transfer(block, new_out);
+
+        update_out_state_if_changed(block, new_out, worklist, in_worklist);
+    }
+
+    std::size_t pop_worklist(std::queue<std::size_t>& worklist,
+                             std::vector<char>&       in_worklist) const
+    {
+        const auto block = worklist.front();
+        worklist.pop();
+
+        in_worklist[block] = 0;
+
+        return block;
+    }
+
+    void build_in_state(std::size_t block) { compute_joined_in_state(block, in_state_scratch_); }
+
+    void compute_joined_in_state(std::size_t block, utils::DynamicBitset& state) const
+    {
+        state.reset();
+
+        if (block == cfg_.entry())
+        {
+            return;
+        }
+
+        bool has_ready_pred = false;
+
+        for (const auto pred : cfg_.predecessors(block))
+        {
+            if (!has_out_[pred])
             {
                 continue;
             }
 
-            auto state = in_state_scratch_;
-            apply_block_transfer(b, state);
+            merge_predecessor_out_state(pred, state, has_ready_pred);
+        }
 
-            if (!has_out_[b] || out_states_[b] != state)
+        if (!has_ready_pred)
+        {
+            state.reset();
+        }
+    }
+
+    void merge_predecessor_out_state(std::size_t pred, utils::DynamicBitset& state,
+                                     bool& has_ready_pred) const
+    {
+        if (!has_ready_pred)
+        {
+            state          = out_states_[pred];
+            has_ready_pred = true;
+            return;
+        }
+
+        state.and_with(out_states_[pred]);
+    }
+
+    bool has_ready_input_for_block(std::size_t block) const
+    {
+        if (block == cfg_.entry())
+        {
+            return true;
+        }
+
+        for (const auto pred : cfg_.predecessors(block))
+        {
+            if (has_out_[pred])
             {
-                out_states_[b] = state;
-                has_out_[b]    = true;
-                enqueue_successors(b, worklist, in_worklist);
+                return true;
             }
+        }
+
+        return false;
+    }
+
+    void apply_block_transfer(std::size_t block, utils::DynamicBitset& state) const
+    {
+        const auto context = make_transfer_context();
+
+        for (const auto& instruction : cfg_.block(block)->get_instructions())
+        {
+            utils::apply_transfer(instruction, context, state);
+        }
+    }
+
+    void update_out_state_if_changed(std::size_t block, const utils::DynamicBitset& new_out,
+                                     std::queue<std::size_t>& worklist,
+                                     std::vector<char>&       in_worklist)
+    {
+        if (has_out_[block] && out_states_[block] == new_out)
+        {
+            return;
+        }
+
+        out_states_[block] = new_out;
+        has_out_[block]    = true;
+
+        enqueue_successors(block, worklist, in_worklist);
+    }
+
+    void enqueue_successors(std::size_t block, std::queue<std::size_t>& worklist,
+                            std::vector<char>& in_worklist) const
+    {
+        for (const auto succ : cfg_.successors(block))
+        {
+            if (in_worklist[succ])
+            {
+                continue;
+            }
+
+            worklist.push(succ);
+            in_worklist[succ] = 1;
         }
     }
 
@@ -496,20 +521,26 @@ struct FunctionContext
 
     void materialize_basic_block_metadata()
     {
-        for (std::size_t b = 0; b < cfg_.size(); ++b)
+        for (std::size_t block = 0; block < cfg_.size(); ++block)
         {
-            auto in_state = build_materialized_in_state(b);
-
-            auto block_meta     = std::make_unique<metadata::available_copy::BasicBlockMeta>();
-            block_meta->in_bits = in_state.words();
-            cfg_.block(b)->get_metadata().set(std::move(block_meta));
+            materialize_basic_block_metadata(block);
         }
     }
 
-    utils::DynamicBitset build_materialized_in_state(const std::size_t b) const
+    void materialize_basic_block_metadata(std::size_t block)
+    {
+        auto in_state = build_materialized_in_state(block);
+
+        auto block_meta     = std::make_unique<metadata::available_copy::BasicBlockMeta>();
+        block_meta->in_bits = in_state.words();
+
+        cfg_.block(block)->get_metadata().set(std::move(block_meta));
+    }
+
+    utils::DynamicBitset build_materialized_in_state(std::size_t block) const
     {
         utils::DynamicBitset in_state{facts_.size()};
-        compute_joined_in_state(b, in_state);
+        compute_joined_in_state(block, in_state);
         return in_state;
     }
 
@@ -520,13 +551,15 @@ struct FunctionContext
         function_meta->facts_by_dest   = std::move(facts_by_dest_);
         function_meta->facts_by_source = std::move(facts_by_source_);
         function_meta->variables_by_id = std::move(variables_by_id_);
+
         function_->get_metadata().set(std::move(function_meta));
     }
 
   private:
     program::FunctionIR_sptr      function_;
     utils::view::FlattenedCFGView cfg_;
-    std::size_t                   NV_{0};
+
+    std::size_t NV_{0};
 
     utils::SparseMap<std::size_t, program::VariableIR_sptr> variables_by_id_;
     utils::SparseMap<program::VariableIR_raw, std::size_t>  variable_ids_;
@@ -545,18 +578,18 @@ struct FunctionContext
 class Impl
 {
   public:
-    explicit Impl(program::ProgramIR_sptr sala_ir) : sala_ir_{std::move(sala_ir)} { run(); }
+    explicit Impl(program::ProgramIR_sptr sala_ir) : sala_ir_{std::move(sala_ir)}
+    {
+        ASSUMPTION(sala_ir_ != nullptr);
+        run();
+    }
 
   private:
     void run()
     {
         for (const auto& function : sala_ir_->get_functions())
         {
-            if (function == nullptr)
-            {
-                continue;
-            }
-
+            ASSUMPTION(function != nullptr);
             FunctionContext(function).run();
         }
     }
@@ -564,12 +597,13 @@ class Impl
   private:
     program::ProgramIR_sptr sala_ir_;
 };
+
 } // namespace
 
 void AvailableCopyAnalysis::run(program::ProgramIR_sptr sala_ir)
 {
     TMPROF_BLOCK()
-    const auto trigger = Impl(sala_ir);
+    const auto trigger = Impl(std::move(sala_ir));
 }
 
 } // namespace optimizer::passes

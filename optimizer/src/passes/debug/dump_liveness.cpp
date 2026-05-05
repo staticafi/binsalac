@@ -1,6 +1,5 @@
 #include <optimizer/passes/debug/dump_liveness.hpp>
 
-#include <optimizer/analysis/liveness_query.hpp>
 #include <optimizer/metadata/liveness.hpp>
 #include <optimizer/metadata/translation.hpp>
 #include <optimizer/programIR/basic_block_ir.hpp>
@@ -9,6 +8,7 @@
 #include <optimizer/programIR/instruction_ir.hpp>
 #include <optimizer/programIR/program_ir.hpp>
 #include <optimizer/programIR/variable_ir.hpp>
+#include <optimizer/query/liveness_query.hpp>
 #include <optimizer/utils/common.hpp>
 #include <optimizer/utils/liveness/import.hpp>
 #include <optimizer/utils/sparse_set.hpp>
@@ -172,7 +172,7 @@ struct Impl
 
         fill_bb_map(*function);
 
-        analysis::LivenessQueryFunction query(function);
+        query::LivenessQueryFunction query(function);
 
         out << utils::get_offset(offset) << "__basic_blocks__:\n";
         out << utils::get_offset(offset) << "<\n";
@@ -196,7 +196,7 @@ struct Impl
     }
 
     void serialize_basic_block(std::ostream& out, const program::BasicBlockIR_sptr& basic_block,
-                               analysis::LivenessQueryFunction& query, int offset)
+                               query::LivenessQueryFunction& query, int offset)
     {
         ASSUMPTION(basic_block != nullptr);
 
@@ -263,7 +263,7 @@ struct Impl
     }
 
     void serialize_instructions(std::ostream& out, const program::InstructionIRListS& instructions,
-                                analysis::LivenessQueryFunction& query, int offset)
+                                query::LivenessQueryFunction& query, int offset)
     {
         for (const auto& instruction : instructions)
         {
@@ -285,7 +285,7 @@ struct Impl
 
     void dump_instruction_query_info(std::ostream&                      out,
                                      const program::InstructionIR_sptr& instruction,
-                                     analysis::LivenessQueryFunction&   query)
+                                     query::LivenessQueryFunction&      query)
     {
         const auto live_before = query.live_before(instruction);
         const auto live_after  = query.live_after(instruction);
@@ -480,9 +480,7 @@ void DumpLiveness::set_output_path(std::filesystem::path output_path)
 void DumpLiveness::run(program::ProgramIR_sptr sala_ir)
 {
     ASSUMPTION(sala_ir != nullptr);
-    // std::cout << "DLi: started" << std::endl;
     const auto trigger = Impl(std::move(sala_ir), output_path_);
-    // std::cout << "DLi: done" << std::endl;
 }
 
 } // namespace optimizer::passes

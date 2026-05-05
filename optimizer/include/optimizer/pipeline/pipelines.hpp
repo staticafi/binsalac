@@ -7,15 +7,17 @@
 namespace optimizer::pipeline
 {
 
-// using TestingPipeline =
-//         TypedPipeline<Repr::Sala, LowerSalaToIRPass, GlobalPointsToPass, LocalPointsToPass,
-//                       DumpPointsToPass, RemoveIndirectionsPass, BumpIrToSalaPass>;
-
-using TestingPipeline =
+using DebugPipeline =
         TypedPipeline<Repr::Sala, LowerSalaToIRPass, MergeConstantsPass, GlobalPointsToPass,
                       LocalPointsToPass, DumpPointsToPass, RemoveIndirectionsPass,
                       AvailableCopyPass, DumpAvailCopyPass, PropagateCopyPass, LivenessPass,
                       DumpLivenessPass, DeadInstructionEliminationPass,
+                      DeadVariablesEliminationPass, BumpIrToSalaPass>;
+
+using ReleasePipeline =
+        TypedPipeline<Repr::Sala, LowerSalaToIRPass, MergeConstantsPass, GlobalPointsToPass,
+                      LocalPointsToPass, RemoveIndirectionsPass, AvailableCopyPass,
+                      PropagateCopyPass, LivenessPass, DeadInstructionEliminationPass,
                       DeadVariablesEliminationPass, BumpIrToSalaPass>;
 
 } // namespace optimizer::pipeline

@@ -1,6 +1,5 @@
 #include <optimizer/passes/debug/dump_points_to.hpp>
 
-#include <optimizer/analysis/points_to_query.hpp>
 #include <optimizer/metadata/points_to.hpp>
 #include <optimizer/metadata/translation.hpp>
 #include <optimizer/programIR/basic_block_ir.hpp>
@@ -9,6 +8,7 @@
 #include <optimizer/programIR/instruction_ir.hpp>
 #include <optimizer/programIR/program_ir.hpp>
 #include <optimizer/programIR/variable_ir.hpp>
+#include <optimizer/query/points_to_query.hpp>
 #include <optimizer/utils/common.hpp>
 #include <optimizer/utils/points_to/import.hpp>
 
@@ -141,7 +141,7 @@ struct Impl
         ASSUMPTION(function_points_to_meta != nullptr);
         ASSUMPTION(function_points_to_meta->bb_may_state_store != nullptr);
 
-        analysis::PointsToQueryFunction query(function);
+        query::PointsToQueryFunction query(function);
 
         if (function->get_initializer_flag())
         {
@@ -210,7 +210,7 @@ struct Impl
     void serialize_basic_block(std::ostream& out, const program::BasicBlockIR_sptr& basic_block,
                                int                                      offset,
                                const metadata::points_to::FunctionMeta& function_points_to_meta,
-                               analysis::PointsToQueryFunction&         query)
+                               query::PointsToQueryFunction&            query)
     {
         if (basic_block == basic_block->get_function()->get_entry_basic_block())
         {
@@ -260,7 +260,7 @@ struct Impl
     }
 
     void serialize_instructions(std::ostream& out, const program::InstructionIRListS& instructions,
-                                int offset, analysis::PointsToQueryFunction& query)
+                                int offset, query::PointsToQueryFunction& query)
     {
         for (const auto& instruction : instructions)
         {

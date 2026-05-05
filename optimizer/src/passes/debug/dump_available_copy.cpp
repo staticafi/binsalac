@@ -1,6 +1,5 @@
 #include <optimizer/passes/debug/dump_available_copy.hpp>
 
-#include <optimizer/analysis/available_copy_query.hpp>
 #include <optimizer/metadata/available_copy.hpp>
 #include <optimizer/metadata/metadata.hpp>
 #include <optimizer/metadata/translation.hpp>
@@ -10,6 +9,7 @@
 #include <optimizer/programIR/instruction_ir.hpp>
 #include <optimizer/programIR/program_ir.hpp>
 #include <optimizer/programIR/variable_ir.hpp>
+#include <optimizer/query/available_copy_query.hpp>
 #include <optimizer/utils/available_copy/import.hpp>
 #include <optimizer/utils/common.hpp>
 
@@ -134,7 +134,7 @@ struct Impl
 
         fill_bb_map(*function);
 
-        analysis::AvailableCopyQueryFunction query(function);
+        query::AvailableCopyQueryFunction query(function);
 
         out << utils::get_offset(offset) << "__basic_blocks__:\n";
         out << utils::get_offset(offset) << "<\n";
@@ -228,7 +228,7 @@ struct Impl
     }
 
     void serialize_basic_block(std::ostream& out, const program::BasicBlockIR_sptr& basic_block,
-                               analysis::AvailableCopyQueryFunction& query, int offset)
+                               query::AvailableCopyQueryFunction& query, int offset)
     {
         if (basic_block == basic_block->get_function()->get_entry_basic_block())
         {
@@ -274,7 +274,7 @@ struct Impl
     }
 
     void serialize_instructions(std::ostream& out, const program::InstructionIRListS& instructions,
-                                analysis::AvailableCopyQueryFunction& query, int offset)
+                                query::AvailableCopyQueryFunction& query, int offset)
     {
         for (const auto& instruction : instructions)
         {
@@ -293,9 +293,9 @@ struct Impl
         }
     }
 
-    void dump_instruction_query_info(std::ostream&                         out,
-                                     const program::InstructionIR_sptr&    instruction,
-                                     analysis::AvailableCopyQueryFunction& query)
+    void dump_instruction_query_info(std::ostream&                      out,
+                                     const program::InstructionIR_sptr& instruction,
+                                     query::AvailableCopyQueryFunction& query)
     {
         const auto  opcode   = instruction->get_opcode();
         const auto& operands = instruction->get_operands();
@@ -427,9 +427,7 @@ void DumpAvailCopy::set_output_path(std::filesystem::path output_path)
 void DumpAvailCopy::run(program::ProgramIR_sptr sala_ir)
 {
     ASSUMPTION(sala_ir != nullptr);
-    // std::cout << "DLi: started" << std::endl;
     const auto trigger = Impl(std::move(sala_ir), output_path_);
-    // std::cout << "DLi: done" << std::endl;
 }
 
 } // namespace optimizer::passes
