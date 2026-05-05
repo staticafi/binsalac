@@ -1,4 +1,4 @@
-#include <optimizer/analysis/points_to_query.hpp>
+#include <optimizer/query/points_to_query.hpp>
 
 #include <optimizer/programIR/basic_block_ir.hpp>
 #include <optimizer/programIR/constant_ir.hpp>
@@ -11,27 +11,31 @@
 
 #include <utility/assumptions.hpp>
 
-namespace optimizer::analysis
+#include <cstddef>
+#include <optional>
+#include <utility>
+#include <variant>
+#include <vector>
+
+namespace optimizer::query
 {
 
 namespace
 {
-using MayState         = utils::MayState;
 using MayValue         = utils::MayValue;
 using MayAnalysisState = utils::MayAnalysisState;
 
-inline objectId get_variable_id(const program::VariableIR& variable)
+objectId get_variable_id(const program::VariableIR& variable)
 {
     return variable.get_metadata().get<metadata::points_to::VariableMeta>().id;
 }
 
-inline objectId get_constant_id(const program::ConstantIR& constant)
+objectId get_constant_id(const program::ConstantIR& constant)
 {
     return constant.get_metadata().get<metadata::points_to::ConstantMeta>().id;
 }
 
-inline objectId get_operand_id(const program::InstructionIR_sptr& instruction,
-                               const std::size_t                  position)
+objectId get_operand_id(const program::InstructionIR_sptr& instruction, const std::size_t position)
 {
     const auto operand_raw = instruction->get_operands().at(position);
 
@@ -53,46 +57,7 @@ inline objectId get_operand_id(const program::InstructionIR_sptr& instruction,
     ASSUMPTION(false);
 }
 
-inline std::size_t get_basic_block_index(const program::FunctionIR_csptr& function,
-                                         const program::BasicBlockIR_raw  bb_raw)
-{
-    ASSUMPTION(function != nullptr);
-    ASSUMPTION(bb_raw != nullptr);
-
-    std::size_t idx = 0;
-    for (const auto& bb : function->get_basic_blocks())
-    {
-        if (bb.get() == bb_raw)
-        {
-            return idx;
-        }
-        ++idx;
-    }
-
-    ASSUMPTION(false);
-}
-
-inline std::size_t get_instruction_index(const program::InstructionIR_sptr& instruction)
-{
-    ASSUMPTION(instruction != nullptr);
-
-    const auto bb = instruction->get_basic_block();
-    ASSUMPTION(bb != nullptr);
-
-    std::size_t idx = 0;
-    for (const auto& current : bb->get_instructions())
-    {
-        if (current.get() == instruction.get())
-        {
-            return idx;
-        }
-        ++idx;
-    }
-
-    ASSUMPTION(false);
-}
-
-inline objectId compute_last_local_id(const metadata::points_to::ObjectPool& local_objects)
+objectId compute_last_local_id(const metadata::points_to::ObjectPool& local_objects)
 {
     objectId result = 0;
     bool     first  = true;
@@ -109,7 +74,7 @@ inline objectId compute_last_local_id(const metadata::points_to::ObjectPool& loc
     return result;
 }
 
-inline PointsToResult make_poisoned_result()
+PointsToResult make_poisoned_result()
 {
     PointsToResult result{};
     result.poisoned = true;
@@ -118,7 +83,7 @@ inline PointsToResult make_poisoned_result()
     return result;
 }
 
-inline PointsToResult make_result_from_value(const MayValue* value, std::optional<Target> must)
+PointsToResult make_result_from_value(const MayValue* value, std::optional<Target> must)
 {
     PointsToResult result{};
 
@@ -136,8 +101,7 @@ inline PointsToResult make_result_from_value(const MayValue* value, std::optiona
     return result;
 }
 
-inline PointsToResult make_result_from_state(const MayAnalysisState& state,
-                                             const objectId          queried_id)
+PointsToResult make_result_from_state(const MayAnalysisState& state, const objectId queried_id)
 {
     if (state.poisoned)
     {
@@ -168,6 +132,7 @@ void PointsToQueryFunction::build_object_cache()
 
         const auto* meta =
                 variable_sptr->get_metadata().template get_raw<metadata::points_to::VariableMeta>();
+
         if (meta != nullptr)
         {
             object_cache_.emplace_hint(object_cache_.end(), meta->id,
@@ -181,6 +146,7 @@ void PointsToQueryFunction::build_object_cache()
 
         const auto* meta =
                 constant_sptr->get_metadata().template get_raw<metadata::points_to::ConstantMeta>();
+
         if (meta != nullptr)
         {
             object_cache_.emplace_hint(object_cache_.end(), meta->id,
@@ -192,14 +158,17 @@ void PointsToQueryFunction::build_object_cache()
     {
         add_constant(constant);
     }
+
     for (const auto& variable : program_keepalive_->get_static_vars())
     {
         add_variable(variable);
     }
+
     for (const auto& parameter : function_->get_parameters())
     {
         add_variable(parameter);
     }
+
     for (const auto& variable : function_->get_local_variables())
     {
         add_variable(variable);
@@ -229,12 +198,39 @@ PointsToQueryFunction::PointsToQueryFunction(program::FunctionIR_csptr function)
     last_local_id_ = compute_last_local_id(*local_objects_);
     build_object_cache();
 
-    cache_.bb    = nullptr;
-    cache_.instr = nullptr;
+    cache_.bb          = nullptr;
+    cache_.instr       = nullptr;
+    cache_.bb_index    = 0;
+    cache_.instr_index = 0;
     cache_.state.clear();
+
+    cache_.after_valid = false;
+    cache_.after_state.clear();
 }
 
-[[nodiscard]] const metadata::points_to::ObjectPool*
+std::size_t
+PointsToQueryFunction::get_basic_block_index(const program::BasicBlockIR_raw bb_raw) const
+{
+    ASSUMPTION(bb_raw != nullptr);
+
+    std::size_t index = 0;
+
+    for (const auto& bb : function_->get_basic_blocks())
+    {
+        ASSUMPTION(bb != nullptr);
+
+        if (bb.get() == bb_raw)
+        {
+            return index;
+        }
+
+        ++index;
+    }
+
+    ASSUMPTION(false);
+}
+
+const metadata::points_to::ObjectPool*
 PointsToQueryFunction::get_object_pool(const program::InstructionIR_sptr& instruction,
                                        const program::VariableIR&         x)
 {
@@ -301,6 +297,114 @@ void PointsToQueryFunction::apply_transfer_to_state(const program::InstructionIR
     transfer_may_(context);
 }
 
+void PointsToQueryFunction::reset_cached_after_state()
+{
+    cache_.after_valid = false;
+    cache_.after_state.clear();
+}
+
+bool PointsToQueryFunction::try_advance_cache_to(const program::InstructionIR_sptr& instruction)
+{
+    ASSUMPTION(instruction != nullptr);
+
+    const auto target_bb = instruction->get_basic_block_raw();
+    ASSUMPTION(target_bb != nullptr);
+
+    if (cache_.bb != target_bb)
+    {
+        return false;
+    }
+
+    if (cache_.instr == nullptr)
+    {
+        return false;
+    }
+
+    auto self_it = cache_.instr->get_self_it();
+    ASSUMPTION(self_it.has_value());
+
+    auto it = *self_it;
+
+    while (it != cache_.bb->get_instructions().end())
+    {
+        ASSUMPTION(*it != nullptr);
+        ASSUMPTION(cache_.instr == it->get());
+
+        if (it->get() == instruction.get())
+        {
+            return true;
+        }
+
+        if (cache_.after_valid)
+        {
+            cache_.state = cache_.after_state;
+        }
+        else
+        {
+            apply_transfer_to_state(*it, cache_.state, cache_.bb_index, cache_.instr_index);
+        }
+
+        ++it;
+        ++cache_.instr_index;
+
+        if (it == cache_.bb->get_instructions().end())
+        {
+            cache_.instr = nullptr;
+        }
+        else
+        {
+            ASSUMPTION(*it != nullptr);
+            cache_.instr = it->get();
+        }
+
+        reset_cached_after_state();
+    }
+
+    return false;
+}
+
+void PointsToQueryFunction::rebuild_cache_before(const program::InstructionIR_sptr& instruction)
+{
+    ASSUMPTION(instruction != nullptr);
+
+    const auto bb_raw = instruction->get_basic_block_raw();
+    ASSUMPTION(bb_raw != nullptr);
+    ASSUMPTION(bb_raw->get_function_raw() == function_.get());
+
+    const auto* bb_meta = bb_raw->get_metadata().get_raw<metadata::points_to::BasicBlockMeta>();
+    ASSUMPTION(bb_meta != nullptr);
+    ASSUMPTION(function_meta_ != nullptr);
+    ASSUMPTION(function_meta_->bb_may_state_store != nullptr);
+
+    cache_.bb          = bb_raw;
+    cache_.instr       = instruction.get();
+    cache_.bb_index    = get_basic_block_index(bb_raw);
+    cache_.instr_index = 0;
+    cache_.state       = function_meta_->bb_may_state_store->get(bb_meta->may_in_id);
+
+    reset_cached_after_state();
+
+    bool found = false;
+
+    for (const auto& current_instruction : bb_raw->get_instructions())
+    {
+        ASSUMPTION(current_instruction != nullptr);
+
+        if (current_instruction.get() == instruction.get())
+        {
+            found = true;
+            break;
+        }
+
+        apply_transfer_to_state(current_instruction, cache_.state, cache_.bb_index,
+                                cache_.instr_index);
+
+        ++cache_.instr_index;
+    }
+
+    ASSUMPTION(found);
+}
+
 void PointsToQueryFunction::populate_cache_before(const program::InstructionIR_sptr& instruction)
 {
     ASSUMPTION(instruction != nullptr);
@@ -314,54 +418,38 @@ void PointsToQueryFunction::populate_cache_before(const program::InstructionIR_s
         return;
     }
 
-    const auto* bb_meta = bb_raw->get_metadata().get_raw<metadata::points_to::BasicBlockMeta>();
-    ASSUMPTION(bb_meta != nullptr);
-    ASSUMPTION(function_meta_ != nullptr);
-    ASSUMPTION(function_meta_->bb_may_state_store != nullptr);
-
-    cache_.bb    = bb_raw;
-    cache_.instr = instruction.get();
-    cache_.state = function_meta_->bb_may_state_store->get(bb_meta->may_in_id);
-
-    const auto bb_index = get_basic_block_index(function_, bb_raw);
-
-    std::size_t current_instr_index = 0;
-    for (const auto& current_instruction : bb_raw->get_instructions())
+    if (try_advance_cache_to(instruction))
     {
-        if (current_instruction.get() == instruction.get())
-        {
-            break;
-        }
-
-        apply_transfer_to_state(current_instruction, cache_.state, bb_index, current_instr_index);
-        ++current_instr_index;
-
-        if (cache_.state.poisoned)
-        {
-            break;
-        }
+        return;
     }
+
+    rebuild_cache_before(instruction);
 }
 
-utils::points_to::MayAnalysisState PointsToQueryFunction::compute_after_state_from_cache(
+MayAnalysisState PointsToQueryFunction::compute_after_state_from_cache(
         const program::InstructionIR_sptr& instruction)
 {
     ASSUMPTION(instruction != nullptr);
     ASSUMPTION(cache_.bb == instruction->get_basic_block_raw());
     ASSUMPTION(cache_.instr == instruction.get());
 
-    auto after_state = cache_.state;
-    if (!after_state.poisoned)
+    if (!cache_.after_valid)
     {
-        const auto bb_index = get_basic_block_index(function_, instruction->get_basic_block_raw());
-        const auto instr_index = get_instruction_index(instruction);
-        apply_transfer_to_state(instruction, after_state, bb_index, instr_index);
+        cache_.after_state = cache_.state;
+
+        if (!cache_.after_state.poisoned)
+        {
+            apply_transfer_to_state(instruction, cache_.after_state, cache_.bb_index,
+                                    cache_.instr_index);
+        }
+
+        cache_.after_valid = true;
     }
 
-    return after_state;
+    return cache_.after_state;
 }
 
-utils::points_to::MayAnalysisState
+MayAnalysisState
 PointsToQueryFunction::handle_state_request(const program::InstructionIR_sptr& instruction,
                                             bool                               before)
 {
@@ -416,14 +504,12 @@ PointsToResult PointsToQueryFunction::handle_request(const program::InstructionI
     return handle_cache_hit(instruction, x, before);
 }
 
-utils::points_to::MayAnalysisState
-PointsToQueryFunction::before_state(const program::InstructionIR_sptr& instruction)
+MayAnalysisState PointsToQueryFunction::before_state(const program::InstructionIR_sptr& instruction)
 {
     return handle_state_request(instruction, true);
 }
 
-utils::points_to::MayAnalysisState
-PointsToQueryFunction::after_state(const program::InstructionIR_sptr& instruction)
+MayAnalysisState PointsToQueryFunction::after_state(const program::InstructionIR_sptr& instruction)
 {
     return handle_state_request(instruction, false);
 }
@@ -465,4 +551,4 @@ std::optional<program::OperandIR_sptr> PointsToQueryFunction::get_object(objectI
     return object_cache_iter->second;
 }
 
-} // namespace optimizer::analysis
+} // namespace optimizer::query

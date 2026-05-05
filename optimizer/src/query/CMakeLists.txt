@@ -1,5 +1,5 @@
 set(INCLUDE_DIR
-  ${CMAKE_CURRENT_SOURCE_DIR}/../../include/optimizer/analysis
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../include/optimizer/query
 )
 
 set(HEADER_FILES

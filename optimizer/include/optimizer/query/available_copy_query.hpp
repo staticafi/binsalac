@@ -1,5 +1,5 @@
-#ifndef OPTIMIZER_ANALYSIS_AVAILABLE_COPY_QUERY_HPP_INCLUDED
-#define OPTIMIZER_ANALYSIS_AVAILABLE_COPY_QUERY_HPP_INCLUDED
+#ifndef OPTIMIZER_QUERY_AVAILABLE_COPY_QUERY_HPP_INCLUDED
+#define OPTIMIZER_QUERY_AVAILABLE_COPY_QUERY_HPP_INCLUDED
 
 #include <optimizer/metadata/available_copy.hpp>
 #include <optimizer/programIR/basic_block_ir.hpp>
@@ -14,7 +14,7 @@
 #include <optional>
 #include <vector>
 
-namespace optimizer::analysis
+namespace optimizer::query
 {
 
 struct AvailableCopyResult
@@ -44,16 +44,33 @@ class AvailableCopyQueryFunction
     {
         program::BasicBlockIR_raw  bb{};
         program::InstructionIR_raw instr{};
-        State                      in_state{};
+
+        State in_state{};
+
+        bool  after_valid{false};
+        State after_state{};
     };
 
     AvailableCopyResult handle_request(const program::InstructionIR_sptr& instruction,
-                                       const program::VariableIR& x, bool before);
+                                        const program::VariableIR& x, bool before);
 
     AvailableCopyResult handle_cache_hit(const program::InstructionIR_sptr& instruction,
-                                         const program::VariableIR& x, bool before);
+                                          const program::VariableIR& x, bool before);
 
-    void reconstruct_before_state(const program::InstructionIR_sptr& instruction);
+    void populate_cache_before(const program::InstructionIR_sptr& instruction);
+
+    [[nodiscard]] bool try_advance_cache_to(const program::InstructionIR_sptr& instruction);
+
+    void rebuild_cache_before(const program::InstructionIR_sptr& instruction);
+
+    void reset_cached_after_state();
+
+    [[nodiscard]] State compute_after_state_from_cache(
+            const program::InstructionIR_sptr& instruction);
+
+    void apply_transfer_to_state(const program::InstructionIR_sptr& instruction, State& state) const;
+
+    void load_basic_block_in_state(program::BasicBlockIR_raw basic_block, State& state) const;
 
     [[nodiscard]] std::optional<std::size_t> resolve_direct_source_id(std::size_t  variable_id,
                                                                       const State& state) const;
@@ -65,9 +82,6 @@ class AvailableCopyQueryFunction
                                                            const State& state) const;
 
     [[nodiscard]] utils::TransferContext make_transfer_context() const;
-
-    [[nodiscard]] static std::size_t
-    get_instruction_index(const program::InstructionIR_sptr& instruction);
 
   private:
     program::ProgramIR_csptr  program_keepalive_;
@@ -82,6 +96,6 @@ class AvailableCopyQueryFunction
     std::vector<utils::DynamicBitset>                      kill_masks_;
 };
 
-} // namespace optimizer::analysis
+} // namespace optimizer::query
 
 #endif
