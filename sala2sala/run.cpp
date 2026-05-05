@@ -1,3 +1,4 @@
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -10,6 +11,19 @@
 #include <sala2sala/program_options.hpp>
 #include <utility/timeprof.hpp>
 
+static optimizer::OptimizerConfig parse_optimizer_config()
+{
+    optimizer::OptimizerConfig optimizer_config;
+
+    if (get_program_options()->has("pipeline"))
+    {
+        optimizer_config.pipeline =
+                optimizer::pipeline_kind_from_string(get_program_options()->value("pipeline"));
+    }
+
+    return optimizer_config;
+}
+
 void run(int argc, char* argv[])
 {
     TMPROF_BLOCK();
@@ -19,11 +33,13 @@ void run(int argc, char* argv[])
         std::cout << get_program_options() << std::endl;
         return;
     }
+
     if (get_program_options()->has("version"))
     {
         std::cout << get_program_options()->value("version") << std::endl;
         return;
     }
+
     if (!get_program_options()->has("input"))
     {
         std::cout << "The input file was not specified." << std::endl;
@@ -37,14 +53,17 @@ void run(int argc, char* argv[])
         istr >> *P;
     }
 
-    optimizer::Optimizer optimizer;
+    optimizer::Optimizer optimizer{parse_optimizer_config()};
     P = optimizer.run(std::move(P));
 
     std::filesystem::path output_json_file{get_program_options()->value("output")};
+
     if (std::filesystem::is_directory(output_json_file))
         output_json_file.append(P->name() + ".json");
+
     std::ofstream ostr(output_json_file.c_str(), std::ios_base::binary);
     ostr << *P;
+
     if (get_program_options()->has("jsonc"))
     {
         ostr.close();
