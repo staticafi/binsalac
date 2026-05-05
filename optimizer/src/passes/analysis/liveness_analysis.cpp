@@ -6,21 +6,72 @@
 #include <optimizer/programIR/instruction_ir.hpp>
 #include <optimizer/programIR/program_ir.hpp>
 #include <optimizer/utils/liveness/import.hpp>
-#include <optimizer/utils/sparse_map.hpp>
 #include <optimizer/utils/view/flattened_cfg_view.hpp>
 
 #include <utility/assumptions.hpp>
 #include <utility/timeprof.hpp>
 
+#include <cstddef>
 #include <memory>
 #include <queue>
+#include <utility>
 #include <vector>
 
 namespace optimizer::passes
 {
 namespace
 {
-struct FunctionContext
+// Free functions
+
+void add_block_uses_before_defs(const utils::LiveSet& uses, utils::LiveSet& block_use,
+                                const utils::LiveSet& block_def)
+{
+    for (const auto& use : uses)
+    {
+        if (!block_def.contains(use))
+        {
+            block_use.insert(use);
+        }
+    }
+}
+
+void add_block_defs(const utils::LiveSet& defs, utils::LiveSet& block_def)
+{
+    for (const auto& def : defs)
+    {
+        block_def.insert(def);
+    }
+}
+
+std::size_t pop_worklist(std::queue<std::size_t>& worklist, std::vector<bool>& in_worklist)
+{
+    const auto block = worklist.front();
+    worklist.pop();
+
+    in_worklist[block] = false;
+
+    return block;
+}
+
+void update_removable_instruction_set(const program::InstructionIR_sptr&  instruction,
+                                      utils::LiveSet&                     live,
+                                      metadata::liveness::BasicBlockMeta& bb_meta)
+{
+    ASSUMPTION(instruction != nullptr);
+
+    if (utils::is_instruction_removable(instruction, live))
+    {
+        bb_meta.removable_instructions.insert(instruction.get());
+    }
+
+    utils::LiveSet live_before;
+    utils::apply_backward_transfer(instruction, live, live_before);
+    live = std::move(live_before);
+}
+
+// Class definitions
+
+class FunctionContext
 {
   public:
     explicit FunctionContext(program::FunctionIR_sptr function) : cfg_{std::move(function)} {}
@@ -44,31 +95,25 @@ struct FunctionContext
         block_use_.assign(cfg_.size(), {});
         block_def_.assign(cfg_.size(), {});
 
-        for (std::size_t b = 0; b < cfg_.size(); ++b)
+        for (std::size_t block = 0; block < cfg_.size(); ++block)
         {
-            auto& block_use = block_use_[b];
-            auto& block_def = block_def_[b];
+            init_block_local_sets(block);
+        }
+    }
 
-            utils::LiveSet uses;
-            utils::LiveSet defs;
+    void init_block_local_sets(std::size_t block)
+    {
+        auto& block_use = block_use_[block];
+        auto& block_def = block_def_[block];
 
-            for (const auto& instruction : cfg_.block(b)->get_instructions())
-            {
-                utils::collect_uses_and_defs(instruction, uses, defs);
+        utils::LiveSet uses;
+        utils::LiveSet defs;
 
-                for (const auto& use : uses)
-                {
-                    if (!block_def.contains(use))
-                    {
-                        block_use.insert(use);
-                    }
-                }
-
-                for (const auto& def : defs)
-                {
-                    block_def.insert(def);
-                }
-            }
+        for (const auto& instruction : cfg_.block(block)->get_instructions())
+        {
+            utils::collect_uses_and_defs(instruction, uses, defs);
+            add_block_uses_before_defs(uses, block_use, block_def);
+            add_block_defs(defs, block_def);
         }
     }
 
@@ -88,80 +133,138 @@ struct FunctionContext
         std::queue<std::size_t> worklist;
         std::vector<bool>       in_worklist(cfg_.size(), false);
 
-        for (std::size_t b = 0; b < cfg_.size(); ++b)
-        {
-            worklist.push(b);
-            in_worklist[b] = true;
-        }
+        enqueue_all_blocks(worklist, in_worklist);
 
         while (!worklist.empty())
         {
-            const auto b = worklist.front();
-            worklist.pop();
-            in_worklist[b] = false;
+            process_next_block(worklist, in_worklist);
+        }
+    }
 
-            utils::LiveSet new_out;
-            for (const auto succ : cfg_.successors(b))
+    void enqueue_all_blocks(std::queue<std::size_t>& worklist, std::vector<bool>& in_worklist) const
+    {
+        for (std::size_t block = 0; block < cfg_.size(); ++block)
+        {
+            worklist.push(block);
+            in_worklist[block] = true;
+        }
+    }
+
+    void process_next_block(std::queue<std::size_t>& worklist, std::vector<bool>& in_worklist)
+    {
+        const auto block = pop_worklist(worklist, in_worklist);
+
+        auto new_out = compute_live_out(block);
+        auto new_in  = compute_live_in(block, new_out);
+
+        update_state_if_changed(block, std::move(new_in), std::move(new_out), worklist,
+                                in_worklist);
+    }
+
+    utils::LiveSet compute_live_out(std::size_t block) const
+    {
+        utils::LiveSet live_out;
+
+        for (const auto succ : cfg_.successors(block))
+        {
+            add_successor_live_in(succ, live_out);
+        }
+
+        return live_out;
+    }
+
+    void add_successor_live_in(std::size_t succ, utils::LiveSet& live_out) const
+    {
+        for (const auto& operand : live_in_[succ])
+        {
+            live_out.insert(operand);
+        }
+    }
+
+    utils::LiveSet compute_live_in(std::size_t block, const utils::LiveSet& live_out) const
+    {
+        auto live_in = live_out;
+
+        remove_block_defs(block, live_in);
+        add_block_uses(block, live_in);
+
+        return live_in;
+    }
+
+    void remove_block_defs(std::size_t block, utils::LiveSet& live_in) const
+    {
+        for (const auto& def : block_def_[block])
+        {
+            live_in.erase(def);
+        }
+    }
+
+    void add_block_uses(std::size_t block, utils::LiveSet& live_in) const
+    {
+        for (const auto& use : block_use_[block])
+        {
+            live_in.insert(use);
+        }
+    }
+
+    void update_state_if_changed(std::size_t block, utils::LiveSet new_in, utils::LiveSet new_out,
+                                 std::queue<std::size_t>& worklist, std::vector<bool>& in_worklist)
+    {
+        if (new_out == live_out_[block] && new_in == live_in_[block])
+        {
+            return;
+        }
+
+        live_out_[block] = std::move(new_out);
+        live_in_[block]  = std::move(new_in);
+
+        enqueue_predecessors(block, worklist, in_worklist);
+    }
+
+    void enqueue_predecessors(std::size_t block, std::queue<std::size_t>& worklist,
+                              std::vector<bool>& in_worklist) const
+    {
+        for (const auto pred : cfg_.predecessors(block))
+        {
+            if (in_worklist[pred])
             {
-                for (const auto& operand : live_in_[succ])
-                {
-                    new_out.insert(operand);
-                }
+                continue;
             }
 
-            utils::LiveSet new_in = new_out;
-            for (const auto& def : block_def_[b])
-            {
-                new_in.erase(def);
-            }
-            for (const auto& use : block_use_[b])
-            {
-                new_in.insert(use);
-            }
-
-            if (!(new_out == live_out_[b]) || !(new_in == live_in_[b]))
-            {
-                live_out_[b] = std::move(new_out);
-                live_in_[b]  = std::move(new_in);
-
-                for (const auto pred : cfg_.predecessors(b))
-                {
-                    if (!in_worklist[pred])
-                    {
-                        worklist.push(pred);
-                        in_worklist[pred] = true;
-                    }
-                }
-            }
+            worklist.push(pred);
+            in_worklist[pred] = true;
         }
     }
 
     void materialize()
     {
-        for (std::size_t b = 0; b < cfg_.size(); ++b)
+        for (std::size_t block = 0; block < cfg_.size(); ++block)
         {
-            auto bb_meta      = std::make_unique<metadata::liveness::BasicBlockMeta>();
-            bb_meta->live_out = live_out_[b];
-            bb_meta->removable_instructions.clear();
+            materialize_block(block);
+        }
+    }
 
-            utils::LiveSet live = bb_meta->live_out;
+    void materialize_block(std::size_t block)
+    {
+        auto bb_meta      = std::make_unique<metadata::liveness::BasicBlockMeta>();
+        bb_meta->live_out = live_out_[block];
+        bb_meta->removable_instructions.clear();
 
-            const auto& instructions = cfg_.block(b)->get_instructions();
-            for (auto it = instructions.rbegin(); it != instructions.rend(); ++it)
-            {
-                ASSUMPTION(*it != nullptr);
+        compute_removable_instructions(block, *bb_meta);
 
-                if (utils::is_instruction_removable(*it, live))
-                {
-                    bb_meta->removable_instructions.insert(it->get());
-                }
+        cfg_.block(block)->get_metadata().set(std::move(bb_meta));
+    }
 
-                utils::LiveSet live_before;
-                utils::apply_backward_transfer(*it, live, live_before);
-                live = std::move(live_before);
-            }
+    void compute_removable_instructions(std::size_t                         block,
+                                        metadata::liveness::BasicBlockMeta& bb_meta) const
+    {
+        utils::LiveSet live = bb_meta.live_out;
 
-            cfg_.block(b)->get_metadata().set(std::move(bb_meta));
+        const auto& instructions = cfg_.block(block)->get_instructions();
+
+        for (auto it = instructions.rbegin(); it != instructions.rend(); ++it)
+        {
+            update_removable_instruction_set(*it, live, bb_meta);
         }
     }
 
@@ -183,15 +286,12 @@ class Impl
         run();
     }
 
-    program::ProgramIR_sptr result() const { return sala_ir_; }
-
   private:
     void run()
     {
         for (const auto& function : sala_ir_->get_functions())
         {
             ASSUMPTION(function != nullptr);
-
             FunctionContext(function).run();
         }
     }

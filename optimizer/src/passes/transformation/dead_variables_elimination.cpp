@@ -9,6 +9,7 @@
 #include <optimizer/utils/sparse_set.hpp>
 
 #include <utility/assumptions.hpp>
+#include <utility/timeprof.hpp>
 
 #include <vector>
 
@@ -93,9 +94,8 @@ class Impl
 
 void DeadVariablesElimination::run(program::ProgramIR_sptr sala_ir)
 {
-    std::cout << "DVE: started" << std::endl;
+    TMPROF_BLOCK();
     const auto trigger = Impl(std::move(sala_ir));
-    std::cout << "DVE: done" << std::endl;
 }
 
 } // namespace optimizer::passes
