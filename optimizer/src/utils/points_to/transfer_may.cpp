@@ -119,9 +119,6 @@ inline MayState::iterator require_tracked_pointer(const MayTransferContextBundle
     auto it = context.state.may.find(id);
     if (it == context.state.may.end())
     {
-        // std::cout << serialize_program_point(context.pp) << " NUKING " << what << ": not tracked
-        // "
-        //           << id << std::endl;
         poison_may(context);
         return context.state.may.end();
     }
@@ -129,16 +126,6 @@ inline MayState::iterator require_tracked_pointer(const MayTransferContextBundle
     return it;
 }
 
-// Require that `id` currently holds a tracked finite pointer value.
-//
-// Current policy:
-// - missing may information => invalid / too imprecise access, nuke may, then materialize `id` as
-// top
-// - top may information     => invalid / too imprecise access, nuke may
-//
-// Return value:
-// - iterator to valid finite tracked may value
-// - end() if the caller must stop
 inline MayState::iterator require_tracked_non_top_pointer(const MayTransferContextBundle& context,
                                                           const objectId                  id,
                                                           const std::string&              what)
@@ -152,8 +139,6 @@ inline MayState::iterator require_tracked_non_top_pointer(const MayTransferConte
 
     if (it->second.is_top)
     {
-        // std::cout << serialize_program_point(context.pp) << " NUKING " << what << ": top " << id
-        //           << std::endl;
         poison_may(context);
         return context.state.may.end();
     }
@@ -206,10 +191,6 @@ bool merge_object_points_to_into_object(MayAnalysisState& state, const objectId 
 }
 // Merge pointee contents from all dereferenceable source targets into all
 // dereferenceable destination targets.
-//
-// Non-dereferenceable targets are ignored here because they cannot denote state cells.
-// If tracked and untracked dereferenceable sources are mixed, destination cells lose
-// precision via merge_unknown.
 void merge_pointees_into_pointees(MayAnalysisState& state, const MayValue& dst_ptr_value,
                                   const MayValue& src_ptr_value)
 {
@@ -336,7 +317,6 @@ void store_through_pointer(MayAnalysisState& state, MayValue& dst_ptr_value, obj
 // Out-parameters:
 // - any_tracked   => at least one dereferenceable pointee had a tracked cell
 // - any_untracked => at least one dereferenceable pointee had no tracked cell
-// TODO: look into
 MayValue load_through_pointer(const MayState& state, const MayValue& ptr_value, bool& any_tracked,
                               bool& any_untracked)
 {
@@ -561,9 +541,9 @@ void apply_transfer_may_p2i(const MayTransferContextBundle& context)
     const auto vN_id = context.operands_id[0];
     const auto vM_id = context.operands_id[1];
 
-    if (context.state.may.find(vM_id) == context.state.may.end())
+    const auto vM_id_may_iter = require_tracked_pointer(context, vM_id, "I2P");
+    if (vM_id_may_iter == context.state.may.end())
     {
-        erase_cell(context.state, vN_id);
         return;
     }
 
