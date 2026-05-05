@@ -1,19 +1,17 @@
-#include <iostream>
-
 #include <optimizer/passes/transformation/propagate_copy.hpp>
 
-#include <optimizer/analysis/available_copy_query.hpp>
 #include <optimizer/passes/analysis/available_copy_analysis.hpp>
 #include <optimizer/programIR/basic_block_ir.hpp>
 #include <optimizer/programIR/function_ir.hpp>
 #include <optimizer/programIR/instruction_ir.hpp>
 #include <optimizer/programIR/program_ir.hpp>
 #include <optimizer/programIR/variable_ir.hpp>
+#include <optimizer/query/available_copy_query.hpp>
 #include <optimizer/utils/available_copy/import.hpp>
 
 #include <utility/assumptions.hpp>
+#include <utility/timeprof.hpp>
 
-#include <memory>
 #include <vector>
 
 namespace optimizer::passes
@@ -27,8 +25,8 @@ struct PendingTransform
     program::VariableIR_sptr    replacement;
 };
 
-inline bool is_variable_use_operand(const program::InstructionIR_sptr& instruction,
-                                    const std::size_t                  operand_index)
+bool is_variable_use_operand(const program::InstructionIR_sptr& instruction,
+                             const std::size_t                  operand_index)
 {
     ASSUMPTION(instruction != nullptr);
 
@@ -47,9 +45,9 @@ inline bool is_variable_use_operand(const program::InstructionIR_sptr& instructi
     return variable != nullptr && *variable != nullptr;
 }
 
-inline std::optional<PendingTransform>
-compute_replacement(const program::InstructionIR_sptr& instruction, const std::size_t operand_index,
-                    analysis::AvailableCopyQueryFunction& query)
+std::optional<PendingTransform> compute_replacement(const program::InstructionIR_sptr& instruction,
+                                                    const std::size_t operand_index,
+                                                    query::AvailableCopyQueryFunction& query)
 {
     ASSUMPTION(instruction != nullptr);
 
@@ -84,7 +82,7 @@ compute_replacement(const program::InstructionIR_sptr& instruction, const std::s
     };
 }
 
-inline void apply_replacements(std::vector<PendingTransform>& replacements)
+void apply_replacements(std::vector<PendingTransform>& replacements)
 {
     while (!replacements.empty())
     {
@@ -98,7 +96,7 @@ inline void apply_replacements(std::vector<PendingTransform>& replacements)
     }
 }
 
-inline void propagate_in_function(const program::FunctionIR_sptr& function)
+void propagate_in_function(const program::FunctionIR_sptr& function)
 {
     ASSUMPTION(function != nullptr);
 
@@ -107,8 +105,8 @@ inline void propagate_in_function(const program::FunctionIR_sptr& function)
         return;
     }
 
-    analysis::AvailableCopyQueryFunction query(function);
-    std::vector<PendingTransform>        replacements;
+    query::AvailableCopyQueryFunction query(function);
+    std::vector<PendingTransform>     replacements;
 
     for (const auto& basic_block : function->get_basic_blocks())
     {
@@ -167,8 +165,7 @@ class Impl
 
 void PropagateCopy::run(program::ProgramIR_sptr sala_ir)
 {
-    std::cout << "PCT: started" << std::endl;
+    TMPROF_BLOCK();
     const auto trigger = Impl(std::move(sala_ir));
-    std::cout << "PCT: done" << std::endl;
 }
 } // namespace optimizer::passes

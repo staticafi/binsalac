@@ -9,6 +9,7 @@
 
 #include <utility/development.hpp>
 #include <utility/invariants.hpp>
+#include <utility/timeprof.hpp>
 
 #include <algorithm>
 #include <span>
@@ -293,6 +294,7 @@ class Impl
 
 void MergeConstants::run(program::ProgramIR_sptr sala_ir)
 {
+    TMPROF_BLOCK();
     const auto trigger = Impl(std::move(sala_ir));
 }
 } // namespace optimizer::passes

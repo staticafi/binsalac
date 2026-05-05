@@ -29,8 +29,8 @@ using utils::objectId;
 
 namespace
 {
-
 // Free functions
+
 void merge_optional_function_export(std::optional<MayAnalysisState>& target,
                                     MayAnalysisState                 source)
 {
@@ -58,6 +58,8 @@ bool update_global_state_if_needed(MayAnalysisState&               current_globa
     }
     return fixpoint_reached;
 }
+
+// Class definitions
 
 class FunctionContext
 {
@@ -542,8 +544,7 @@ class Impl
                 continue;
             }
 
-            contexts_.emplace_back(
-                    std::make_unique<FunctionContext>(function_id++, function, local_id_start));
+            contexts_.emplace_back(function_id++, function, local_id_start);
         }
     }
 
@@ -577,7 +578,7 @@ class Impl
     {
         for (auto& context : contexts_)
         {
-            context->run(current_global_state);
+            context.run(current_global_state);
         }
     }
 
@@ -587,7 +588,7 @@ class Impl
 
         for (auto& context : contexts_)
         {
-            auto exported = context->get_after_global_states();
+            auto exported = context.get_after_global_states();
             if (!exported.has_value())
             {
                 continue;
@@ -603,14 +604,14 @@ class Impl
     {
         while (!contexts_.empty())
         {
-            contexts_.back()->materialize();
+            contexts_.back().materialize();
             contexts_.pop_back();
         }
     }
 
   private:
-    program::ProgramIR_sptr                       sala_ir_;
-    std::vector<std::unique_ptr<FunctionContext>> contexts_;
+    program::ProgramIR_sptr      sala_ir_;
+    std::vector<FunctionContext> contexts_;
 };
 } // namespace
 

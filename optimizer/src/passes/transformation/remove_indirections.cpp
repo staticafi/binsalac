@@ -1,14 +1,13 @@
 #include <optimizer/passes/transformation/remove_indirections.hpp>
 
-#include <optimizer/analysis/points_to_query.hpp>
 #include <optimizer/metadata/points_to.hpp>
 #include <optimizer/programIR/basic_block_ir.hpp>
 #include <optimizer/programIR/function_ir.hpp>
 #include <optimizer/programIR/instruction_ir.hpp>
+#include <optimizer/query/points_to_query.hpp>
 
 #include <utility/development.hpp>
-
-#include <execution>
+#include <utility/timeprof.hpp>
 
 namespace optimizer::passes
 {
@@ -34,7 +33,6 @@ class FunctionContext
     {
         if (function_->get_initializer_flag())
         {
-            // TODO: consider how
             return;
         }
         for (const auto& bb_ptr : function_->get_basic_blocks())
@@ -109,14 +107,7 @@ class FunctionContext
         }
 
         const auto& indirect_variable = *(std::get<program::VariableIR_raw>(indirect_operand));
-        // if (indirect_variable.get_context() != program::VariableIR::Context::LOCAL)
-        // {
-        //     // TODO: think about replacing also not local variables
-        //     // - we can have *ptr_to_static = x, then we can perform static = x ?
-        //     return;
-        // }
-
-        const auto points_to_result = function_query_.before(instruction, indirect_variable);
+        const auto  points_to_result  = function_query_.before(instruction, indirect_variable);
         if (!points_to_result.must.has_value())
         {
             return;
@@ -141,14 +132,13 @@ class FunctionContext
     }
 
   private:
-    program::FunctionIR_sptr        function_;
-    analysis::PointsToQueryFunction function_query_;
+    program::FunctionIR_sptr     function_;
+    query::PointsToQueryFunction function_query_;
 
     std::vector<PendingTransform> to_transform_;
 };
-} // namespace
 
-class RemoveIndirections::Impl
+class Impl
 {
   public:
     explicit Impl(program::ProgramIR_sptr salal_ir) : sala_ir_{std::move(salal_ir)}
@@ -164,7 +154,6 @@ class RemoveIndirections::Impl
         {
             if (function->get_initializer_flag())
             {
-                // TODO: currently ignored look into correctness
                 continue;
             }
             FunctionContext(function).run();
@@ -174,16 +163,12 @@ class RemoveIndirections::Impl
   private:
     program::ProgramIR_sptr sala_ir_;
 };
+} // namespace
 
-RemoveIndirections::~RemoveIndirections() = default;
-RemoveIndirections::RemoveIndirections()  = default;
-
-program::ProgramIR_sptr RemoveIndirections::run(program::ProgramIR_sptr sala_ir)
+void RemoveIndirections::run(program::ProgramIR_sptr sala_ir)
 {
     ASSUMPTION(sala_ir->get_metadata().has<metadata::points_to::ProgramMeta>());
-    std::cout << "RI: started" << std::endl;
-    pImpl_ = std::make_unique<Impl>(sala_ir);
-    std::cout << "RI: done" << std::endl;
-    return sala_ir;
+    TMPROF_BLOCK();
+    const auto trigger = Impl(std::move(sala_ir));
 }
 } // namespace optimizer::passes
