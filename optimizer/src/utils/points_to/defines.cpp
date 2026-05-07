@@ -143,7 +143,7 @@ collect_all_modifiable_cells_for_call_boundary(const MayTransferContextBundle& c
     }
 
     add_if_modifiable(abstract_nodes::OUT_OF_GLOBAL_SCOPE);
-    add_if_modifiable(abstract_nodes::VARGARG_BLOCK);
+    add_if_modifiable(abstract_nodes::VARARG_BLOCK);
     add_if_modifiable(abstract_nodes::ALLOCA);
     add_if_modifiable(abstract_nodes::HEAP);
 
@@ -241,6 +241,28 @@ void apply_observable_payload_to_modifiable_cells(const std::vector<objectId>& m
     }
 }
 } // namespace
+bool is_globally_visible_target(const ObjectPool& global_objects_, objectId id)
+{
+    return global_objects_.contains(id) || id == abstract_nodes::HEAP ||
+           id == abstract_nodes::FUNCTION;
+}
+
+void poison_may(const MayTransferContextBundle& context)
+{
+    poison_may_state(context.state);
+}
+
+void poison_may_state(MayAnalysisState& state) noexcept
+{
+    state.may.clear();
+    state.must.clear();
+    state.poisoned = true;
+}
+
+bool is_poisoned(const MayAnalysisState& state) noexcept
+{
+    return state.poisoned;
+}
 
 bool is_constant_object(const ObjectPool& globals, const objectId id) noexcept
 {
