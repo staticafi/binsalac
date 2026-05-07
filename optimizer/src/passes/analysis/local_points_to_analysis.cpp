@@ -21,7 +21,7 @@
 
 namespace optimizer::passes
 {
-namespace grouped_objects = utils::grouped_objects;
+namespace abstract_nodes = utils::abstract_nodes;
 using utils::MayAnalysisState;
 using utils::MayState;
 using utils::Object;
@@ -261,7 +261,7 @@ class FunctionContext
         for (const auto param : assumed_ptr_params_)
         {
             may_in.may.insert_or_assign(
-                    param, utils::make_singleton(grouped_objects::OUT_OF_LOCAL_SCOPE, false));
+                    param, utils::make_singleton(abstract_nodes::OUT_OF_LOCAL_SCOPE, false));
             may_in.must.erase(param);
         }
     }
@@ -374,7 +374,7 @@ class FunctionContext
             }
         }
 
-        export_global_object_state_cell(grouped_objects::HEAP, out_may, exported);
+        export_global_object_state_cell(abstract_nodes::HEAP, out_may, exported);
         return exported;
     }
 
@@ -424,7 +424,7 @@ class FunctionContext
             }
             else
             {
-                projected.insert(utils::Target{grouped_objects::OUT_OF_GLOBAL_SCOPE, false});
+                projected.insert(utils::Target{abstract_nodes::OUT_OF_GLOBAL_SCOPE, false});
             }
         }
 
@@ -444,7 +444,7 @@ class FunctionContext
 
     bool is_globally_visible_target(objectId id) const
     {
-        return global_objects_->contains(id) || id == grouped_objects::HEAP;
+        return global_objects_->contains(id) || id == abstract_nodes::HEAP;
     }
 
     static void merge_optional_exit_export(std::optional<MayAnalysisState>& target,
@@ -479,7 +479,7 @@ class FunctionContext
         const auto operand_raw = instruction->get_operands().at(position);
         if (std::holds_alternative<program::FunctionIR_raw>(operand_raw))
         {
-            return grouped_objects::FUNCTION;
+            return abstract_nodes::FUNCTION;
         }
 
         if (const auto variable_raw = std::get_if<program::VariableIR_raw>(&operand_raw))

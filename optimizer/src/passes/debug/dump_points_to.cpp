@@ -308,7 +308,7 @@ struct Impl
     void serialize_function_pointer(std::ostream& out, const program::FunctionIR& function,
                                     int offset)
     {
-        out << utils::get_offset(offset) << utils::grouped_objects::FUNCTION << "="
+        out << utils::get_offset(offset) << utils::abstract_nodes::FUNCTION << "="
             << utils::get_function_name(function);
     }
 

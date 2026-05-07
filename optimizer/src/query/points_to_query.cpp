@@ -41,7 +41,7 @@ objectId get_operand_id(const program::InstructionIR_sptr& instruction, const st
 
     if (std::holds_alternative<program::FunctionIR_raw>(operand_raw))
     {
-        return utils::grouped_objects::FUNCTION;
+        return utils::abstract_nodes::FUNCTION;
     }
     else if (const auto variable_raw = std::get_if<program::VariableIR_raw>(&operand_raw))
     {
