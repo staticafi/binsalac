@@ -8,47 +8,39 @@ namespace optimizer::utils::points_to
 {
 namespace
 {
-
-inline std::string serialize_program_point(const ProgramPoint& pp)
-{
-    std::ostringstream builder;
-    builder << "PP: [" << pp.function << ", " << pp.bb << ", " << pp.instr << " ]";
-    return builder.str();
-}
-
-inline bool is_top_value(const MayValue& value) noexcept
+bool is_top_value(const MayValue& value) noexcept
 {
     return value.is_top;
 }
 
-inline bool is_tracked(const MayState& state, const objectId id) noexcept
+bool is_tracked(const MayState& state, const objectId id) noexcept
 {
     return state.find(id) != state.end();
 }
 
-inline bool is_dereferenceable_target(const Target& target) noexcept
+bool is_dereferenceable_target(const Target& target) noexcept
 {
     return can_have_state_cell(target.id);
 }
 
-inline bool is_exact_target(const Target& target) noexcept
+bool is_exact_target(const Target& target) noexcept
 {
     return is_concrete_object(target.id) && !target.offset_flag;
 }
 
-inline void erase_cell(MayAnalysisState& state, objectId cell)
+void erase_cell(MayAnalysisState& state, objectId cell)
 {
     state.may.erase(cell);
     state.must.erase(cell);
 }
 
-inline void set_top_cell(MayAnalysisState& state, objectId cell)
+void set_top_cell(MayAnalysisState& state, objectId cell)
 {
     state.may.insert_or_assign(cell, MayValue::top());
     state.must.erase(cell);
 }
 
-inline void set_singleton_cell(MayAnalysisState& state, objectId cell, Target target)
+void set_singleton_cell(MayAnalysisState& state, objectId cell, Target target)
 {
     state.may.insert_or_assign(cell, MayValue::singleton(target));
 
@@ -62,7 +54,7 @@ inline void set_singleton_cell(MayAnalysisState& state, objectId cell, Target ta
     }
 }
 
-inline void copy_cell(MayAnalysisState& state, objectId dst, objectId src)
+void copy_cell(MayAnalysisState& state, objectId dst, objectId src)
 {
     if (dst == src)
     {
@@ -88,7 +80,7 @@ inline void copy_cell(MayAnalysisState& state, objectId dst, objectId src)
     }
 }
 
-inline bool may_value_has_dereferenceable_target(const MayValue& value) noexcept
+bool may_value_has_dereferenceable_target(const MayValue& value) noexcept
 {
     if (value.is_top)
     {
@@ -106,14 +98,14 @@ inline bool may_value_has_dereferenceable_target(const MayValue& value) noexcept
     return false;
 }
 
-inline void strong_transfer(objectId copy_dest, objectId copy_source,
-                            const MayTransferContextBundle& context)
+void strong_transfer(objectId copy_dest, objectId copy_source,
+                     const MayTransferContextBundle& context)
 {
     copy_cell(context.state, copy_dest, copy_source);
 }
 
-inline MayState::iterator require_tracked_pointer(const MayTransferContextBundle& context,
-                                                  const objectId id, const std::string& what)
+MayState::iterator require_tracked_pointer(const MayTransferContextBundle& context,
+                                           const objectId id, const std::string& what)
 {
     ASSUMPTION(!context.state.poisoned);
     auto it = context.state.may.find(id);
@@ -126,9 +118,8 @@ inline MayState::iterator require_tracked_pointer(const MayTransferContextBundle
     return it;
 }
 
-inline MayState::iterator require_tracked_non_top_pointer(const MayTransferContextBundle& context,
-                                                          const objectId                  id,
-                                                          const std::string&              what)
+MayState::iterator require_tracked_non_top_pointer(const MayTransferContextBundle& context,
+                                                   const objectId id, const std::string& what)
 {
     const auto it = require_tracked_pointer(context, id, what);
     if (it == context.state.may.end())
@@ -189,6 +180,7 @@ bool merge_object_points_to_into_object(MayAnalysisState& state, const objectId 
 
     return true;
 }
+
 // Merge pointee contents from all dereferenceable source targets into all
 // dereferenceable destination targets.
 void merge_pointees_into_pointees(MayAnalysisState& state, const MayValue& dst_ptr_value,
@@ -241,14 +233,6 @@ void merge_pointees_into_pointees(MayAnalysisState& state, const MayValue& dst_p
     }
 }
 
-// Store a source may value through a finite destination pointer value.
-//
-// For each dereferenceable destination pointee:
-// - tracked top source    => destination cell becomes top
-// - tracked finite source => destination cell joins with source
-// - untracked source      => destination cell loses precision via merge_unknown
-//
-// Non-dereferenceable targets are ignored.
 void store_through_pointer(MayAnalysisState& state, MayValue& dst_ptr_value, objectId src_id)
 {
     ASSUMPTION(!is_top_value(dst_ptr_value));
@@ -308,15 +292,7 @@ void store_through_pointer(MayAnalysisState& state, MayValue& dst_ptr_value, obj
         }
     }
 }
-// Compute the may result of dereferencing a finite pointer value.
-//
-// Only dereferenceable targets are used as state cells.
-// If at least one dereferenceable pointee is tracked and another is untracked,
-// the result loses precision via merge_unknown.
-//
-// Out-parameters:
-// - any_tracked   => at least one dereferenceable pointee had a tracked cell
-// - any_untracked => at least one dereferenceable pointee had no tracked cell
+
 MayValue load_through_pointer(const MayState& state, const MayValue& ptr_value, bool& any_tracked,
                               bool& any_untracked)
 {
@@ -402,8 +378,6 @@ std::optional<Target> load_must_through_pointer(const MustState& must, const May
 } // namespace
 
 // LOAD n vN vM; vN = *vN
-// - strong if must fact
-// - weak else
 void apply_transfer_may_load(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 2);
@@ -471,6 +445,8 @@ void apply_transfer_may_store(const MayTransferContextBundle& context)
     store_through_pointer(context.state, vN_id_may_iter->second, vM_id);
 }
 
+// MEMCPY n vN vM nH; memcpy(vN, nM, nH)
+// MEMMOVE n vN vM nH; memcpy(vN, vM, nH)
 void apply_transfer_may_memcpy_memmove(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 2);
@@ -515,24 +491,27 @@ void apply_transfer_may_copy(const MayTransferContextBundle& context)
     strong_transfer(vN_id, xM_id, context);
 }
 
+// ALLOCA n vN nM cH; void* vN = (void*)((char*)vM + (nH * cG))
 void apply_transfer_may_alloca(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 1);
     ASSUMPTION(context.operands_count == 1);
     const auto vN_id = context.operands_id[0];
     set_singleton_cell(context.state, vN_id,
-                       Target{.id = grouped_objects::ALLOCA, .offset_flag = false});
+                       Target{.id = abstract_nodes::ALLOCA, .offset_flag = false});
 }
 
+// MALLOC n vN nM
 void apply_transfer_may_malloc(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 1);
     ASSUMPTION(context.operands_count == 1);
     const auto vN_id = context.operands_id[0];
     set_singleton_cell(context.state, vN_id,
-                       Target{.id = grouped_objects::HEAP, .offset_flag = false});
+                       Target{.id = abstract_nodes::HEAP, .offset_flag = false});
 }
 
+// P2I u vN vM; unsigned int vN = (unsigned int)vM
 void apply_transfer_may_p2i(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 2);
@@ -550,6 +529,7 @@ void apply_transfer_may_p2i(const MayTransferContextBundle& context)
     copy_cell(context.state, vN_id, vM_id);
 }
 
+// I2P u vN vM; unsigned int* vN = (unsigned int*)vM
 void apply_transfer_may_i2p(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 2);
@@ -567,6 +547,7 @@ void apply_transfer_may_i2p(const MayTransferContextBundle& context)
     copy_cell(context.state, vN_id, vM_id);
 }
 
+// MOVEPTR n vN vM nH cG; void* vN = (void*)((char*)vM + (nH * cG))
 void apply_transfer_may_moveptr(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 2);
@@ -600,6 +581,7 @@ void apply_transfer_may_moveptr(const MayTransferContextBundle& context)
     context.state.must.erase(vN_id);
 }
 
+// MEMSET n vN nM nH; memset(vN, nM, nH)
 void apply_transfer_may_memset(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 1);
@@ -624,6 +606,9 @@ void apply_transfer_may_memset(const MayTransferContextBundle& context)
     }
 }
 
+// CALL n rN [p0 xH1 ... xHm];
+//     rN([p0, xH1, ..., xHm])    // rN is actually fN
+//     (*rN)([p0, xH1, ..., xHm]) // rN is actually vN holding the pointer to the called function
 void apply_transfer_may_call(const MayTransferContextBundle& context)
 {
     std::span<const objectId> escapees =
@@ -633,6 +618,7 @@ void apply_transfer_may_call(const MayTransferContextBundle& context)
     handle_call_boundary(escapees, context, false);
 }
 
+// STACKSAVE n lN
 void apply_transfer_may_stacksave(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 1);
@@ -642,24 +628,25 @@ void apply_transfer_may_stacksave(const MayTransferContextBundle& context)
                        Target{.id = context.last_local_id, .offset_flag = false});
 }
 
+// STACKRESTORE n lN
 void apply_transfer_may_stackrestore(const MayTransferContextBundle& context)
 {
+    ASSUMPTION(context.operands_id.size() >= 1);
+    ASSUMPTION(context.operands_count == 1);
+
+    const auto lN_id = context.operands_id[0];
+
+    const auto must_it = context.state.must.find(lN_id);
+    if (must_it == context.state.must.end() || must_it->second.id != context.last_local_id)
     {
-        ASSUMPTION(context.operands_id.size() >= 1);
-        ASSUMPTION(context.operands_count == 1);
-
-        const auto vN_id = context.operands_id[0];
-
-        const auto must_it = context.state.must.find(vN_id);
-        if (must_it == context.state.must.end() || must_it->second.id != context.last_local_id ||
-            must_it->second.offset_flag)
-        {
-            poison_may(context);
-            return;
-        }
+        poison_may(context);
+        return;
     }
+
+    erase_cell(context.state, lN_id);
 }
 
+// VA_START n vN
 void apply_transfer_may_va_start(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 1);
@@ -683,18 +670,19 @@ void apply_transfer_may_va_start(const MayTransferContextBundle& context)
         if (target_may_iter != context.state.may.end())
         {
             target_may_iter->second.insert(
-                    {.id = grouped_objects::VARGARG_BLOCK, .offset_flag = false});
+                    {.id = abstract_nodes::VARGARG_BLOCK, .offset_flag = false});
         }
         else
         {
             set_singleton_cell(context.state, target.id,
-                               Target{.id = grouped_objects::VARGARG_BLOCK, .offset_flag = false});
+                               Target{.id = abstract_nodes::VARGARG_BLOCK, .offset_flag = false});
         }
 
         context.state.must.erase(target.id);
     }
 }
 
+// VA_END n vN
 void apply_transfer_may_va_end(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 1);
@@ -702,15 +690,14 @@ void apply_transfer_may_va_end(const MayTransferContextBundle& context)
     constexpr auto max_vargarg_block_depth = 2;
 
     const auto vN_id = context.operands_id[0];
-    if (!is_objectId_reachable(context, vN_id, grouped_objects::VARGARG_BLOCK,
+    if (!is_objectId_reachable(context, vN_id, abstract_nodes::VARGARG_BLOCK,
                                max_vargarg_block_depth))
     {
-        // std::cout << serialize_program_point(context.pp)
-        //           << " NUKING VA_END: does not contain VARGARG_BLOCK" << std::endl;
         poison_may(context);
     }
 }
 
+// VA_ARG n vN vM
 void apply_transfer_may_va_arg(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 2);
@@ -724,10 +711,8 @@ void apply_transfer_may_va_arg(const MayTransferContextBundle& context)
         return;
     }
 
-    if (!contains_objectId(vM_id_may_iter->second, grouped_objects::VARGARG_BLOCK))
+    if (!contains_objectId(vM_id_may_iter->second, abstract_nodes::VARGARG_BLOCK))
     {
-        // std::cout << serialize_program_point(context.pp)
-        //           << " NUKING VA_ARG: does not contain VARGARG_BLOCK" << std::endl;
         poison_may(context);
         return;
     }
@@ -742,7 +727,7 @@ void apply_transfer_may_va_arg(const MayTransferContextBundle& context)
         vN_id_may_iter->second.join_with(vM_id_may_iter->second);
     }
 
-    vN_id_may_iter->second.insert({grouped_objects::VARGARG_BLOCK, true});
+    vN_id_may_iter->second.insert({abstract_nodes::VARGARG_BLOCK, true});
     context.state.must.erase(vN_id);
 }
 
@@ -759,11 +744,9 @@ void apply_transfer_may_va_copy(const MayTransferContextBundle& context)
     {
         return;
     }
-    if (!is_objectId_reachable(context, vM_id, grouped_objects::VARGARG_BLOCK,
+    if (!is_objectId_reachable(context, vM_id, abstract_nodes::VARGARG_BLOCK,
                                max_vargarg_block_depth))
     {
-        // std::cout << serialize_program_point(context.pp)
-        //           << " NUKING VA_COPY: vM does not contain VARGARG_BLOCK" << std::endl;
         poison_may(context);
         return;
     }
@@ -779,12 +762,12 @@ void apply_transfer_may_va_copy(const MayTransferContextBundle& context)
         if (auto target_id_may_iter = context.state.may.find(target.id);
             target_id_may_iter != context.state.may.end())
         {
-            target_id_may_iter->second.insert({grouped_objects::VARGARG_BLOCK, false});
+            target_id_may_iter->second.insert({abstract_nodes::VARGARG_BLOCK, false});
         }
         else
         {
             set_singleton_cell(context.state, target.id,
-                               Target{.id = grouped_objects::VARGARG_BLOCK, .offset_flag = false});
+                               Target{.id = abstract_nodes::VARGARG_BLOCK, .offset_flag = false});
         }
         context.state.must.erase(target.id);
     }
