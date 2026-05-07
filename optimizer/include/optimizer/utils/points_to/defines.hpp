@@ -88,33 +88,17 @@ void handle_call_boundary(std::span<const objectId>       escaped_args,
 
 std::size_t get_relevant_operands_count(const program::InstructionIR& instruction);
 
+bool is_poisoned(const MayAnalysisState& state) noexcept;
+
+void poison_may_state(MayAnalysisState& state) noexcept;
+
+void poison_may(const MayTransferContextBundle& context);
+
+bool is_globally_visible_target(const ObjectPool& global_objects_, objectId id);
+
 constexpr static inline bool is_abstract(objectId node)
 {
     return node < 0;
-}
-
-inline bool is_poisoned(const MayAnalysisState& state) noexcept
-{
-    return state.poisoned;
-}
-
-inline void poison_may_state(MayAnalysisState& state) noexcept
-{
-    state.may.clear();
-    state.must.clear();
-    state.poisoned = true;
-}
-
-static inline void poison_may(const MayTransferContextBundle& context)
-{
-    std::cout << "POISINING MAY " << instruction_opcode_to_string(context.opcode) << " ";
-    for (size_t op = 0; op < context.operands_count; ++op)
-    {
-        std::cout << context.operands_id[op] << " ";
-    }
-    std::cout << "\n";
-    dump_may_set(context.state);
-    poison_may_state(context.state);
 }
 
 } // namespace optimizer::utils::points_to
