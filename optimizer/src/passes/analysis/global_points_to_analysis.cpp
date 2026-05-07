@@ -19,7 +19,7 @@
 
 namespace optimizer::passes
 {
-namespace grouped_objects = utils::grouped_objects;
+namespace abstract_nodes = utils::abstract_nodes;
 using utils::MayAnalysisState;
 using utils::MayState;
 using utils::Object;
@@ -312,7 +312,7 @@ class Impl
             }
         }
 
-        export_global_object_state_cell(grouped_objects::HEAP, source, exported);
+        export_global_object_state_cell(abstract_nodes::HEAP, source, exported);
         return exported;
     }
 
@@ -373,7 +373,7 @@ class Impl
             }
             else
             {
-                projected.insert(utils::Target{grouped_objects::OUT_OF_GLOBAL_SCOPE, false});
+                projected.insert(utils::Target{abstract_nodes::OUT_OF_GLOBAL_SCOPE, false});
             }
         }
 
@@ -382,7 +382,7 @@ class Impl
 
     bool is_globally_visible_target(objectId id) const
     {
-        return global_objects_.contains(id) || id == grouped_objects::HEAP;
+        return global_objects_.contains(id) || id == abstract_nodes::HEAP;
     }
 
     void attach_static_initializer_metadata()
@@ -421,7 +421,7 @@ class Impl
 
         if (std::holds_alternative<program::FunctionIR_raw>(operand))
         {
-            return grouped_objects::FUNCTION;
+            return abstract_nodes::FUNCTION;
         }
 
         const auto operand_id_iter = operand_to_id_.find(operand);

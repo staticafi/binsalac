@@ -11,7 +11,7 @@ namespace optimizer::utils::points_to
 using objectId   = std::int32_t;
 using offsetFlag = bool;
 
-namespace grouped_objects
+namespace abstract_nodes
 {
 constexpr objectId OUT_OF_LOCAL_SCOPE  = -3;
 constexpr objectId OUT_OF_GLOBAL_SCOPE = -4;
@@ -25,7 +25,7 @@ constexpr std::size_t ABSTRACT_TARGET_NODE_COUNT = 6;
 
 static constexpr std::array<objectId, ABSTRACT_TARGET_NODE_COUNT> ABSTRACT_TARGET_NODES = {
         OUT_OF_LOCAL_SCOPE, OUT_OF_GLOBAL_SCOPE, FUNCTION, VARGARG_BLOCK, ALLOCA, HEAP};
-} // namespace grouped_objects
+} // namespace abstract_nodes
 
 constexpr inline bool is_concrete_object(const objectId id) noexcept
 {
@@ -34,17 +34,16 @@ constexpr inline bool is_concrete_object(const objectId id) noexcept
 
 constexpr inline bool is_summary_target(const objectId id) noexcept
 {
-    return id == grouped_objects::OUT_OF_LOCAL_SCOPE ||
-           id == grouped_objects::OUT_OF_GLOBAL_SCOPE || id == grouped_objects::FUNCTION ||
-           id == grouped_objects::VARGARG_BLOCK || id == grouped_objects::ALLOCA ||
-           id == grouped_objects::HEAP;
+    return id == abstract_nodes::OUT_OF_LOCAL_SCOPE || id == abstract_nodes::OUT_OF_GLOBAL_SCOPE ||
+           id == abstract_nodes::FUNCTION || id == abstract_nodes::VARGARG_BLOCK ||
+           id == abstract_nodes::ALLOCA || id == abstract_nodes::HEAP;
 }
 
 constexpr inline bool is_dereferenceable_summary_target(const objectId id) noexcept
 {
-    return id == grouped_objects::OUT_OF_LOCAL_SCOPE ||
-           id == grouped_objects::OUT_OF_GLOBAL_SCOPE || id == grouped_objects::VARGARG_BLOCK ||
-           id == grouped_objects::ALLOCA || id == grouped_objects::HEAP;
+    return id == abstract_nodes::OUT_OF_LOCAL_SCOPE || id == abstract_nodes::OUT_OF_GLOBAL_SCOPE ||
+           id == abstract_nodes::VARGARG_BLOCK || id == abstract_nodes::ALLOCA ||
+           id == abstract_nodes::HEAP;
 }
 
 constexpr inline bool can_have_state_cell(const objectId id) noexcept
