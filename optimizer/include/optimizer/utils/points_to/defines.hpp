@@ -18,8 +18,6 @@ namespace optimizer::utils::points_to
 {
 using ObjectPool = utils::SparseMap<objectId, Object>;
 
-// Raw sparse points-to map.
-// Missing key == bottom for that particular cell.
 using MayState = SparseMap<objectId, MayValue>;
 
 using MustState = SparseMap<objectId, Target>;
