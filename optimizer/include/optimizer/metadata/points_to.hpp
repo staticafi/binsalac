@@ -31,17 +31,7 @@ using PointsToMetaEntry = ConcreteMetaEntry<BaseEntryI, MetaKey::POINTS_TO>;
 
 struct ConstantMeta final : PointsToMetaEntry<ConstantMetaEntryI>
 {
-    // assigned object id
     objectId id{};
-};
-
-struct InstructionMeta final : PointsToMetaEntry<InstructionMetaEntryI>
-{
-    // TODO: remove this and in serialize points to replace with queries
-    // Must state before instruction
-    // MustState must_in;
-    // // May state before instruction
-    // MayState may_in;
 };
 
 struct VariableMeta final : PointsToMetaEntry<VariableMetaEntryI>
