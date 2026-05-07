@@ -51,11 +51,15 @@ bool update_global_state_if_needed(MayAnalysisState&               current_globa
         return true;
     }
 
-    const bool fixpoint_reached = next_global_state.value() == current_global_state;
+    MayAnalysisState joined = current_global_state;
+    utils::state_join_cfg(joined, next_global_state.value());
+    const bool fixpoint_reached = joined == current_global_state;
+
     if (!fixpoint_reached)
     {
-        utils::state_join_cfg(current_global_state, next_global_state.value());
+        current_global_state = std::move(joined);
     }
+
     return fixpoint_reached;
 }
 
