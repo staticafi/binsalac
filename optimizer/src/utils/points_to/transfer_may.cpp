@@ -642,8 +642,6 @@ void apply_transfer_may_stackrestore(const MayTransferContextBundle& context)
         poison_may(context);
         return;
     }
-
-    erase_cell(context.state, lN_id);
 }
 
 // VA_START n vN
@@ -670,12 +668,12 @@ void apply_transfer_may_va_start(const MayTransferContextBundle& context)
         if (target_may_iter != context.state.may.end())
         {
             target_may_iter->second.insert(
-                    {.id = abstract_nodes::VARGARG_BLOCK, .offset_flag = false});
+                    {.id = abstract_nodes::VARARG_BLOCK, .offset_flag = false});
         }
         else
         {
             set_singleton_cell(context.state, target.id,
-                               Target{.id = abstract_nodes::VARGARG_BLOCK, .offset_flag = false});
+                               Target{.id = abstract_nodes::VARARG_BLOCK, .offset_flag = false});
         }
 
         context.state.must.erase(target.id);
@@ -687,11 +685,11 @@ void apply_transfer_may_va_end(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 1);
     ASSUMPTION(context.operands_count == 1);
-    constexpr auto max_vargarg_block_depth = 2;
+    constexpr auto max_vararg_block_depth = 2;
 
     const auto vN_id = context.operands_id[0];
-    if (!is_objectId_reachable(context, vN_id, abstract_nodes::VARGARG_BLOCK,
-                               max_vargarg_block_depth))
+    if (!is_objectId_reachable(context, vN_id, abstract_nodes::VARARG_BLOCK,
+                               max_vararg_block_depth))
     {
         poison_may(context);
     }
@@ -711,7 +709,7 @@ void apply_transfer_may_va_arg(const MayTransferContextBundle& context)
         return;
     }
 
-    if (!contains_objectId(vM_id_may_iter->second, abstract_nodes::VARGARG_BLOCK))
+    if (!contains_objectId(vM_id_may_iter->second, abstract_nodes::VARARG_BLOCK))
     {
         poison_may(context);
         return;
@@ -727,7 +725,7 @@ void apply_transfer_may_va_arg(const MayTransferContextBundle& context)
         vN_id_may_iter->second.join_with(vM_id_may_iter->second);
     }
 
-    vN_id_may_iter->second.insert({abstract_nodes::VARGARG_BLOCK, true});
+    vN_id_may_iter->second.insert({abstract_nodes::VARARG_BLOCK, true});
     context.state.must.erase(vN_id);
 }
 
@@ -735,17 +733,17 @@ void apply_transfer_may_va_copy(const MayTransferContextBundle& context)
 {
     ASSUMPTION(context.operands_id.size() >= 2);
     ASSUMPTION(context.operands_count == 2);
-    constexpr auto max_vargarg_block_depth = 2;
-    const auto     vN_id                   = context.operands_id[0];
-    const auto     vM_id                   = context.operands_id[1];
+    constexpr auto max_vararg_block_depth = 2;
+    const auto     vN_id                  = context.operands_id[0];
+    const auto     vM_id                  = context.operands_id[1];
 
     const auto vN_id_may_iter = require_tracked_non_top_pointer(context, vN_id, "VA_COPY");
     if (vN_id_may_iter == context.state.may.end())
     {
         return;
     }
-    if (!is_objectId_reachable(context, vM_id, abstract_nodes::VARGARG_BLOCK,
-                               max_vargarg_block_depth))
+    if (!is_objectId_reachable(context, vM_id, abstract_nodes::VARARG_BLOCK,
+                               max_vararg_block_depth))
     {
         poison_may(context);
         return;
@@ -762,12 +760,12 @@ void apply_transfer_may_va_copy(const MayTransferContextBundle& context)
         if (auto target_id_may_iter = context.state.may.find(target.id);
             target_id_may_iter != context.state.may.end())
         {
-            target_id_may_iter->second.insert({abstract_nodes::VARGARG_BLOCK, false});
+            target_id_may_iter->second.insert({abstract_nodes::VARARG_BLOCK, false});
         }
         else
         {
             set_singleton_cell(context.state, target.id,
-                               Target{.id = abstract_nodes::VARGARG_BLOCK, .offset_flag = false});
+                               Target{.id = abstract_nodes::VARARG_BLOCK, .offset_flag = false});
         }
         context.state.must.erase(target.id);
     }

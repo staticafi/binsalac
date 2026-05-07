@@ -367,7 +367,7 @@ class Impl
 
         for (const auto& target : value)
         {
-            if (is_globally_visible_target(target.id))
+            if (is_globally_visible_target(global_objects_, target.id))
             {
                 projected.insert(target);
             }
@@ -378,11 +378,6 @@ class Impl
         }
 
         return projected;
-    }
-
-    bool is_globally_visible_target(objectId id) const
-    {
-        return global_objects_.contains(id) || id == abstract_nodes::HEAP;
     }
 
     void attach_static_initializer_metadata()
