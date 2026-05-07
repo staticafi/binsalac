@@ -16,7 +16,7 @@ bool is_modifiable_target_for_call_boundary(const objectId                  id,
                                             const MayTransferContextBundle& context,
                                             const bool                      unmodifiable_constants)
 {
-    if (id == grouped_objects::OUT_OF_LOCAL_SCOPE)
+    if (id == abstract_nodes::OUT_OF_LOCAL_SCOPE)
     {
         return false;
     }
@@ -36,7 +36,7 @@ bool is_modifiable_target_for_call_boundary(const objectId                  id,
 
 bool is_observable_pointer_for_call_boundary(const objectId id)
 {
-    return id != grouped_objects::OUT_OF_LOCAL_SCOPE;
+    return id != abstract_nodes::OUT_OF_LOCAL_SCOPE;
 }
 
 struct ObservablePayloadResult
@@ -56,7 +56,7 @@ build_observable_payload_for_call_boundary(const std::span<const objectId> escap
                                            const MayTransferContextBundle& context)
 {
     ObservablePayloadResult result{};
-    result.payload = make_singleton(grouped_objects::OUT_OF_LOCAL_SCOPE, false);
+    result.payload = make_singleton(abstract_nodes::OUT_OF_LOCAL_SCOPE, false);
 
     utils::SparseSet<objectId> observable_seen;
     std::queue<objectId>       observable_wl;
@@ -142,10 +142,10 @@ collect_all_modifiable_cells_for_call_boundary(const MayTransferContextBundle& c
         add_if_modifiable(id);
     }
 
-    add_if_modifiable(grouped_objects::OUT_OF_GLOBAL_SCOPE);
-    add_if_modifiable(grouped_objects::VARGARG_BLOCK);
-    add_if_modifiable(grouped_objects::ALLOCA);
-    add_if_modifiable(grouped_objects::HEAP);
+    add_if_modifiable(abstract_nodes::OUT_OF_GLOBAL_SCOPE);
+    add_if_modifiable(abstract_nodes::VARGARG_BLOCK);
+    add_if_modifiable(abstract_nodes::ALLOCA);
+    add_if_modifiable(abstract_nodes::HEAP);
 
     return result;
 }
