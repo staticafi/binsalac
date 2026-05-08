@@ -1,19 +1,33 @@
 #include <optimizer/passes/transformation/remove_indirections.hpp>
 
 #include <optimizer/metadata/points_to.hpp>
+#include <optimizer/pipeline/pass_names.hpp>
 #include <optimizer/programIR/basic_block_ir.hpp>
 #include <optimizer/programIR/function_ir.hpp>
 #include <optimizer/programIR/instruction_ir.hpp>
 #include <optimizer/query/points_to_query.hpp>
+#include <optimizer/query/translation_query.hpp>
 
 #include <utility/development.hpp>
+#include <utility/log.hpp>
 #include <utility/timeprof.hpp>
+
+#include <sstream>
 
 namespace optimizer::passes
 {
 using MetaKey = metadata::MetaKey;
 namespace
 {
+
+std::string me()
+{
+    std::ostringstream oss;
+    oss << pipeline::names::remove_indirections;
+    oss << ": ";
+    return oss.str();
+}
+
 struct PendingTransform
 {
     program::InstructionIR_sptr instruction;
@@ -31,17 +45,41 @@ class FunctionContext
 
     void run()
     {
+        LOG(LSL_DEBUG, me() << info() << "Running function context");
+
         if (function_->get_initializer_flag())
         {
+            LOG(LSL_DEBUG, me() << info() << "Skipping static initializer");
             return;
         }
+
         for (const auto& bb_ptr : function_->get_basic_blocks())
         {
             resolve_basic_block(*bb_ptr);
         }
+
+        LOG(LSL_DEBUG, me() << info() << "Done function context");
     };
 
   private:
+    std::string info() const
+    {
+        const auto program = function_->get_program();
+        ASSUMPTION(program != nullptr);
+
+        query::TranslationQuery translation{program};
+
+        auto name = translation.function_name(function_);
+        if (name.empty())
+        {
+            name = "<unnamed>";
+        }
+
+        std::ostringstream oss;
+        oss << "[" << name << "] ";
+        return oss.str();
+    }
+
     void resolve_basic_block(const program::BasicBlockIR& basic_block)
     {
         const auto& points_to_meta =
@@ -67,6 +105,14 @@ class FunctionContext
 
     void process_transforms()
     {
+        if (to_transform_.empty())
+        {
+            return;
+        }
+
+        LOG(LSL_DEBUG,
+            me() << info() << "Applying indirection removals: count=" << to_transform_.size());
+
         while (!to_transform_.empty())
         {
             const auto& transformation = to_transform_.back();
@@ -85,6 +131,8 @@ class FunctionContext
             }
             to_transform_.pop_back();
         }
+
+        LOG(LSL_DEBUG, me() << info() << "Applied indirection removals");
     }
 
     void queue_replace_load(const program::InstructionIR_sptr& instruction)
@@ -149,6 +197,7 @@ class Impl
   private:
     void run_function_contexts()
     {
+        LOG(LSL_DEBUG, me() << "Running function contexts");
 
         for (const auto& function : sala_ir_->get_functions())
         {
@@ -158,6 +207,8 @@ class Impl
             }
             FunctionContext(function).run();
         }
+
+        LOG(LSL_DEBUG, me() << "Done function contexts");
     };
 
   private:
@@ -167,8 +218,12 @@ class Impl
 
 void RemoveIndirections::run(program::ProgramIR_sptr sala_ir)
 {
+    LOG(LSL_INFO, me() << "Running");
+
     ASSUMPTION(sala_ir->get_metadata().has<metadata::points_to::ProgramMeta>());
     TMPROF_BLOCK();
     const auto trigger = Impl(std::move(sala_ir));
+
+    LOG(LSL_INFO, me() << "Done");
 }
 } // namespace optimizer::passes

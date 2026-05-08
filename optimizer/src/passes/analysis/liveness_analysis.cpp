@@ -1,19 +1,23 @@
 #include <optimizer/passes/analysis/liveness_analysis.hpp>
 
 #include <optimizer/metadata/liveness.hpp>
+#include <optimizer/pipeline/pass_names.hpp>
 #include <optimizer/programIR/basic_block_ir.hpp>
 #include <optimizer/programIR/function_ir.hpp>
 #include <optimizer/programIR/instruction_ir.hpp>
 #include <optimizer/programIR/program_ir.hpp>
+#include <optimizer/query/translation_query.hpp>
 #include <optimizer/utils/liveness/import.hpp>
 #include <optimizer/utils/view/flattened_cfg_view.hpp>
 
 #include <utility/assumptions.hpp>
+#include <utility/log.hpp>
 #include <utility/timeprof.hpp>
 
 #include <cstddef>
 #include <memory>
 #include <queue>
+#include <sstream>
 #include <utility>
 #include <vector>
 
@@ -21,7 +25,14 @@ namespace optimizer::passes
 {
 namespace
 {
-// Free functions
+
+std::string me()
+{
+    std::ostringstream oss;
+    oss << pipeline::names::liveness;
+    oss << ": ";
+    return oss.str();
+}
 
 void add_block_uses_before_defs(const utils::LiveSet& uses, utils::LiveSet& block_use,
                                 const utils::LiveSet& block_def)
@@ -69,29 +80,59 @@ void update_removable_instruction_set(const program::InstructionIR_sptr&  instru
     live = std::move(live_before);
 }
 
-// Class definitions
-
 class FunctionContext
 {
   public:
-    explicit FunctionContext(program::FunctionIR_sptr function) : cfg_{std::move(function)} {}
+    explicit FunctionContext(program::FunctionIR_sptr function)
+        : function_{std::move(function)}, cfg_{function_}
+    {
+        ASSUMPTION(function_ != nullptr);
+    }
 
     void run()
     {
+        LOG(LSL_DEBUG, me() << info() << "Running function context");
+
         init_data();
         solve();
         materialize();
+
+        LOG(LSL_DEBUG, me() << info() << "Done function context");
     }
 
   private:
+    std::string info() const
+    {
+        const auto program = function_->get_program();
+        ASSUMPTION(program != nullptr);
+
+        query::TranslationQuery translation{program};
+
+        auto name = translation.function_name(function_);
+        if (name.empty())
+        {
+            name = "<unnamed>";
+        }
+
+        std::ostringstream oss;
+        oss << "[" << name << "] ";
+        return oss.str();
+    }
+
     void init_data()
     {
+        LOG(LSL_DEBUG, me() << info() << "Initializing data");
+
         init_block_local_sets();
         init_states();
+
+        LOG(LSL_DEBUG, me() << info() << "Initialized data: blocks=" << cfg_.size());
     }
 
     void init_block_local_sets()
     {
+        LOG(LSL_DEBUG, me() << info() << "Initializing block-local sets");
+
         block_use_.assign(cfg_.size(), {});
         block_def_.assign(cfg_.size(), {});
 
@@ -99,6 +140,8 @@ class FunctionContext
         {
             init_block_local_sets(block);
         }
+
+        LOG(LSL_DEBUG, me() << info() << "Initialized block-local sets");
     }
 
     void init_block_local_sets(std::size_t block)
@@ -125,8 +168,11 @@ class FunctionContext
 
     void solve()
     {
+        LOG(LSL_DEBUG, me() << info() << "Solving data-flow");
+
         if (cfg_.empty())
         {
+            LOG(LSL_DEBUG, me() << info() << "Skipping solve: empty CFG");
             return;
         }
 
@@ -135,10 +181,15 @@ class FunctionContext
 
         enqueue_all_blocks(worklist, in_worklist);
 
+        std::size_t iterations = 0;
+
         while (!worklist.empty())
         {
+            ++iterations;
             process_next_block(worklist, in_worklist);
         }
+
+        LOG(LSL_DEBUG, me() << info() << "Solved data-flow: iterations=" << iterations);
     }
 
     void enqueue_all_blocks(std::queue<std::size_t>& worklist, std::vector<bool>& in_worklist) const
@@ -238,10 +289,14 @@ class FunctionContext
 
     void materialize()
     {
+        LOG(LSL_DEBUG, me() << info() << "Materializing metadata");
+
         for (std::size_t block = 0; block < cfg_.size(); ++block)
         {
             materialize_block(block);
         }
+
+        LOG(LSL_DEBUG, me() << info() << "Materialized metadata");
     }
 
     void materialize_block(std::size_t block)
@@ -269,6 +324,7 @@ class FunctionContext
     }
 
   private:
+    program::FunctionIR_sptr      function_;
     utils::view::FlattenedCFGView cfg_;
 
     std::vector<utils::LiveSet> block_use_;
@@ -289,11 +345,15 @@ class Impl
   private:
     void run()
     {
+        LOG(LSL_DEBUG, me() << "Running function contexts");
+
         for (const auto& function : sala_ir_->get_functions())
         {
             ASSUMPTION(function != nullptr);
             FunctionContext(function).run();
         }
+
+        LOG(LSL_DEBUG, me() << "Done function contexts");
     }
 
   private:
@@ -304,8 +364,12 @@ class Impl
 
 void LivenessAnalysis::run(program::ProgramIR_sptr sala_ir)
 {
-    TMPROF_BLOCK()
-    const auto trigger = Impl(std::move(sala_ir));
+    LOG(LSL_INFO, me() << "Running");
+    {
+        TMPROF_BLOCK()
+        const auto trigger = Impl(std::move(sala_ir));
+    }
+    LOG(LSL_INFO, me() << "Done");
 }
 
 } // namespace optimizer::passes

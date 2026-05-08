@@ -1,27 +1,64 @@
 #include <optimizer/passes/transformation/dead_variables_elimination.hpp>
 
+#include <optimizer/pipeline/pass_names.hpp>
 #include <optimizer/programIR/basic_block_ir.hpp>
 #include <optimizer/programIR/function_ir.hpp>
 #include <optimizer/programIR/instruction_ir.hpp>
 #include <optimizer/programIR/program_ir.hpp>
 #include <optimizer/programIR/variable_ir.hpp>
+#include <optimizer/query/translation_query.hpp>
 
 #include <optimizer/utils/sparse_set.hpp>
 
 #include <utility/assumptions.hpp>
+#include <utility/log.hpp>
 #include <utility/timeprof.hpp>
 
+#include <sstream>
 #include <vector>
 
 namespace optimizer::passes
 {
 namespace
 {
+
 using PendingRemoval = std::vector<program::VariableIR_sptr>;
+
+std::string me()
+{
+    std::ostringstream oss;
+    oss << pipeline::names::dead_variables_eliminitation;
+    oss << ": ";
+    return oss.str();
+}
+
+std::string info(const program::FunctionIR_sptr& function)
+{
+    ASSUMPTION(function != nullptr);
+
+    const auto program = function->get_program();
+    ASSUMPTION(program != nullptr);
+
+    query::TranslationQuery translation{program};
+
+    auto name = translation.function_name(function);
+    if (name.empty())
+    {
+        name = "<unnamed>";
+    }
+
+    std::ostringstream oss;
+    oss << "[" << name << "] ";
+    return oss.str();
+}
 
 inline void collect_removable_variables_in_function(const program::FunctionIR_sptr& function,
                                                     PendingRemoval&                 removals)
 {
+    LOG(LSL_DEBUG, me() << info(function) << "Collecting removable variables");
+
+    const auto previous_count = removals.size();
+
     utils::SparseSet<program::VariableIR_raw> used;
     used.reserve(function->get_local_variables().size());
 
@@ -48,15 +85,22 @@ inline void collect_removable_variables_in_function(const program::FunctionIR_sp
             removals.push_back(local_variable);
         }
     }
+
+    LOG(LSL_DEBUG, me() << info(function) << "Collected removable variables: count="
+                        << (removals.size() - previous_count));
 }
 
 inline void remove_variables(PendingRemoval& removals)
 {
+    LOG(LSL_DEBUG, me() << "Removing variables: count=" << removals.size());
+
     while (!removals.empty())
     {
         program::release_variable(removals.back());
         removals.pop_back();
     }
+
+    LOG(LSL_DEBUG, me() << "Removed variables");
 }
 
 class Impl
@@ -71,6 +115,8 @@ class Impl
   private:
     program::ProgramIR_sptr run()
     {
+        LOG(LSL_DEBUG, me() << "Running implementation");
+
         PendingRemoval removals;
 
         for (const auto& function : sala_ir_->get_functions())
@@ -84,18 +130,26 @@ class Impl
         }
 
         remove_variables(removals);
+
+        LOG(LSL_DEBUG, me() << "Done implementation");
+
         return sala_ir_;
     }
 
   private:
     program::ProgramIR_sptr sala_ir_;
 };
+
 } // namespace
 
 void DeadVariablesElimination::run(program::ProgramIR_sptr sala_ir)
 {
-    TMPROF_BLOCK();
-    const auto trigger = Impl(std::move(sala_ir));
+    LOG(LSL_INFO, me() << "Running");
+    {
+        TMPROF_BLOCK();
+        const auto trigger = Impl(std::move(sala_ir));
+    }
+    LOG(LSL_INFO, me() << "Done");
 }
 
 } // namespace optimizer::passes

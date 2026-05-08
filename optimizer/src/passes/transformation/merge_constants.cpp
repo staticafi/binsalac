@@ -1,5 +1,6 @@
 #include <optimizer/passes/transformation/merge_constants.hpp>
 
+#include <optimizer/pipeline/pass_names.hpp>
 #include <optimizer/programIR/basic_block_ir.hpp>
 #include <optimizer/programIR/constant_ir.hpp>
 #include <optimizer/programIR/function_ir.hpp>
@@ -9,13 +10,14 @@
 
 #include <utility/development.hpp>
 #include <utility/invariants.hpp>
+#include <utility/log.hpp>
 #include <utility/timeprof.hpp>
 
 #include <algorithm>
 #include <span>
+#include <sstream>
 #include <string_view>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace optimizer::passes
@@ -24,6 +26,15 @@ using ConstantView = std::span<const uint8_t>;
 
 namespace
 {
+
+std::string me()
+{
+    std::ostringstream oss;
+    oss << pipeline::names::merge_constants;
+    oss << ": ";
+    return oss.str();
+}
+
 struct ConstantViewHash
 {
     std::size_t operator()(ConstantView s) const noexcept
@@ -49,8 +60,11 @@ class Impl
   private:
     void run()
     {
+        LOG(LSL_DEBUG, me() << "Running implementation");
+
         if (!group_constants())
         {
+            LOG(LSL_DEBUG, me() << "No duplicate constants found");
             return;
         }
 
@@ -59,16 +73,22 @@ class Impl
 
         if (replacement_map_.empty())
         {
+            LOG(LSL_DEBUG, me() << "No safe constant replacements selected");
             return;
         }
 
         redirect_to_canonical();
         release_duplicates();
+
+        LOG(LSL_DEBUG, me() << "Done implementation: replacements=" << replacement_map_.size()
+                            << ", released_duplicates=" << duplicates_to_release_.size());
     }
 
   private:
     bool group_constants()
     {
+        LOG(LSL_DEBUG, me() << "Grouping constants");
+
         bool duplicate_found = false;
 
         for (const auto& constant : sala_ir_->get_constants())
@@ -84,11 +104,17 @@ class Impl
             it->second.push_back(constant);
         }
 
+        LOG(LSL_DEBUG, me() << "Grouped constants: total=" << sala_ir_->get_constants().size()
+                            << ", groups=" << grouped_constants_.size()
+                            << ", duplicate_found=" << duplicate_found);
+
         return duplicate_found;
     }
 
     void collect_possibly_redefined_constants()
     {
+        LOG(LSL_DEBUG, me() << "Collecting possibly redefined constants");
+
         const auto static_init = sala_ir_->get_static_initializer_func();
 
         for (const auto& basic_block : static_init->get_basic_blocks())
@@ -176,6 +202,9 @@ class Impl
                 }
             }
         }
+
+        LOG(LSL_DEBUG, me() << "Collected possibly redefined constants: count="
+                            << possibly_redefined_constants_.size());
     }
 
     void mark_possibly_redefined_constant(const program::OperandIR_raw operand)
@@ -191,6 +220,8 @@ class Impl
 
     void select_canonical_constants()
     {
+        LOG(LSL_DEBUG, me() << "Selecting canonical constants");
+
         for (const auto& [_, constants] : grouped_constants_)
         {
             if (constants.size() < 2)
@@ -237,10 +268,16 @@ class Impl
                 duplicates_to_release_.push_back(constant);
             }
         }
+
+        LOG(LSL_DEBUG,
+            me() << "Selected canonical constants: replacements=" << replacement_map_.size()
+                 << ", duplicates_to_release=" << duplicates_to_release_.size());
     }
 
     void redirect_to_canonical() const
     {
+        LOG(LSL_DEBUG, me() << "Redirecting constants to canonical constants");
+
         for (const auto& function : sala_ir_->get_functions())
         {
             for (const auto& basic_block : function->get_basic_blocks())
@@ -267,14 +304,21 @@ class Impl
                 }
             }
         }
+
+        LOG(LSL_DEBUG, me() << "Redirected constants to canonical constants");
     }
 
     void release_duplicates()
     {
+        LOG(LSL_DEBUG,
+            me() << "Releasing duplicate constants: count=" << duplicates_to_release_.size());
+
         for (const auto& duplicate : duplicates_to_release_)
         {
             sala_ir_->release_constant(duplicate);
         }
+
+        LOG(LSL_DEBUG, me() << "Released duplicate constants");
     }
 
   private:
@@ -290,11 +334,19 @@ class Impl
 
     std::vector<program::ConstantIR_sptr> duplicates_to_release_;
 };
+
 } // namespace
 
 void MergeConstants::run(program::ProgramIR_sptr sala_ir)
 {
-    TMPROF_BLOCK();
-    const auto trigger = Impl(std::move(sala_ir));
+    LOG(LSL_INFO, me() << "Running");
+
+    {
+        TMPROF_BLOCK();
+        const auto trigger = Impl(std::move(sala_ir));
+    }
+
+    LOG(LSL_INFO, me() << "Done");
 }
+
 } // namespace optimizer::passes
