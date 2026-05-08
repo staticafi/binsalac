@@ -1,14 +1,18 @@
 #include <optimizer/passes/transformation/dead_instruction_elimination.hpp>
 
+#include <optimizer/pipeline/pass_names.hpp>
 #include <optimizer/programIR/basic_block_ir.hpp>
 #include <optimizer/programIR/function_ir.hpp>
 #include <optimizer/programIR/instruction_ir.hpp>
 #include <optimizer/programIR/program_ir.hpp>
 #include <optimizer/query/liveness_query.hpp>
+#include <optimizer/query/translation_query.hpp>
 
 #include <utility/assumptions.hpp>
+#include <utility/log.hpp>
 #include <utility/timeprof.hpp>
 
+#include <sstream>
 #include <utility>
 #include <vector>
 
@@ -18,6 +22,34 @@ namespace
 {
 
 using PendingRemoval = std::vector<program::InstructionIR_sptr>;
+
+std::string me()
+{
+    std::ostringstream oss;
+    oss << pipeline::names::dead_instruction_elimination;
+    oss << ": ";
+    return oss.str();
+}
+
+std::string info(const program::FunctionIR_sptr& function)
+{
+    ASSUMPTION(function != nullptr);
+
+    const auto program = function->get_program();
+    ASSUMPTION(program != nullptr);
+
+    query::TranslationQuery translation{program};
+
+    auto name = translation.function_name(function);
+    if (name.empty())
+    {
+        name = "<unnamed>";
+    }
+
+    std::ostringstream oss;
+    oss << "[" << name << "] ";
+    return oss.str();
+}
 
 void collect_removable_instructions_in_basic_block(const program::BasicBlockIR_sptr&   basic_block,
                                                    const query::LivenessQueryFunction& query,
@@ -48,10 +80,15 @@ void collect_removable_instructions_in_function(const program::FunctionIR_sptr& 
 {
     ASSUMPTION(function != nullptr);
 
+    LOG(LSL_DEBUG, me() << info(function) << "Collecting removable instructions");
+
     if (function->get_external_flag())
     {
+        LOG(LSL_DEBUG, me() << info(function) << "Skipping external function");
         return;
     }
+
+    const auto previous_count = removals.size();
 
     query::LivenessQueryFunction query(function);
 
@@ -59,12 +96,17 @@ void collect_removable_instructions_in_function(const program::FunctionIR_sptr& 
     {
         collect_removable_instructions_in_basic_block(basic_block, query, removals);
     }
+
+    LOG(LSL_DEBUG, me() << info(function) << "Collected removable instructions: count="
+                        << (removals.size() - previous_count));
 }
 
 void collect_removable_instructions(const program::ProgramIR_sptr& sala_ir,
                                     PendingRemoval&                removals)
 {
     ASSUMPTION(sala_ir != nullptr);
+
+    LOG(LSL_DEBUG, me() << "Collecting removable instructions");
 
     for (const auto& function : sala_ir->get_functions())
     {
@@ -75,6 +117,8 @@ void collect_removable_instructions(const program::ProgramIR_sptr& sala_ir,
 
         collect_removable_instructions_in_function(function, removals);
     }
+
+    LOG(LSL_DEBUG, me() << "Collected removable instructions: total=" << removals.size());
 }
 
 void remove_instruction(const program::InstructionIR_sptr& instruction)
@@ -89,10 +133,14 @@ void remove_instruction(const program::InstructionIR_sptr& instruction)
 
 void remove_instructions(const PendingRemoval& removals)
 {
+    LOG(LSL_DEBUG, me() << "Removing instructions: count=" << removals.size());
+
     for (const auto& instruction : removals)
     {
         remove_instruction(instruction);
     }
+
+    LOG(LSL_DEBUG, me() << "Removed instructions");
 }
 
 class Impl
@@ -107,10 +155,14 @@ class Impl
   private:
     void run()
     {
+        LOG(LSL_DEBUG, me() << "Running implementation");
+
         PendingRemoval removals;
 
         collect_removable_instructions(sala_ir_, removals);
         remove_instructions(removals);
+
+        LOG(LSL_DEBUG, me() << "Done implementation");
     }
 
   private:
@@ -121,8 +173,12 @@ class Impl
 
 void DeadInstructionElimination::run(program::ProgramIR_sptr sala_ir)
 {
-    TMPROF_BLOCK();
-    const auto trigger = Impl(std::move(sala_ir));
+    LOG(LSL_INFO, me() << "Running");
+    {
+        TMPROF_BLOCK();
+        const auto trigger = Impl(std::move(sala_ir));
+    }
+    LOG(LSL_INFO, me() << "Done");
 }
 
 } // namespace optimizer::passes

@@ -689,12 +689,12 @@ class Impl
 
 void LocalPointsToAnalysis::run(program::ProgramIR_sptr sala_ir)
 {
-    LOG(LSL_DEBUG, me() << "Running");
-
-    TMPROF_BLOCK()
-    const auto trigger = Impl(std::move(sala_ir));
-
-    LOG(LSL_DEBUG, me() << "Done");
+    LOG(LSL_INFO, me() << "Running");
+    {
+        TMPROF_BLOCK()
+        const auto trigger = Impl(std::move(sala_ir));
+    }
+    LOG(LSL_INFO, me() << "Done");
 }
 
 } // namespace optimizer::passes

@@ -27,7 +27,10 @@ std::shared_ptr<sala::Program> Optimizer::run(std::shared_ptr<sala::Program> pro
     pipeline_mgr_.set_pipeline(
             pipeline::create_pipeline(config_.pipeline.value(), std::move(program)));
 
-    pipeline_mgr_.run();
+    {
+        TMPROF_BLOCK()
+        pipeline_mgr_.run();
+    }
     ASSUMPTION(std::holds_alternative<std::shared_ptr<sala::Program>>(pipeline_mgr_.program()));
     return std::get<std::shared_ptr<sala::Program>>(pipeline_mgr_.program());
 }

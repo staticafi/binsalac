@@ -1,19 +1,23 @@
 #include <optimizer/passes/analysis/global_points_to_analysis.hpp>
 
 #include <optimizer/metadata/points_to.hpp>
+#include <optimizer/pipeline/pass_names.hpp>
 #include <optimizer/programIR/basic_block_ir.hpp>
 #include <optimizer/programIR/function_ir.hpp>
 #include <optimizer/programIR/instruction_ir.hpp>
 #include <optimizer/programIR/program_ir.hpp>
 #include <optimizer/programIR/variable_ir.hpp>
+#include <optimizer/query/translation_query.hpp>
 #include <optimizer/utils/points_to/import.hpp>
 #include <optimizer/utils/view/flattened_cfg_view.hpp>
 
 #include <utility/assumptions.hpp>
+#include <utility/log.hpp>
 #include <utility/timeprof.hpp>
 
 #include <memory>
 #include <queue>
+#include <sstream>
 #include <unordered_map>
 #include <vector>
 
@@ -27,6 +31,15 @@ using utils::objectId;
 
 namespace
 {
+
+std::string me()
+{
+    std::ostringstream oss;
+    oss << pipeline::names::global_points_to;
+    oss << ": ";
+    return oss.str();
+}
+
 class Impl
 {
   public:
@@ -40,16 +53,37 @@ class Impl
     }
 
   private:
+    std::string info() const
+    {
+        query::TranslationQuery translation{sala_ir_};
+
+        auto name = translation.function_name(static_init_);
+        if (name.empty())
+        {
+            name = "<static-initializer>";
+        }
+
+        std::ostringstream oss;
+        oss << "[" << name << "] ";
+        return oss.str();
+    }
+
     void run()
     {
+        LOG(LSL_DEBUG, me() << info() << "Running static initializer context");
+
         init_object_data();
         init_states();
         solve_static_initializer();
         materialize();
+
+        LOG(LSL_DEBUG, me() << info() << "Done static initializer context");
     }
 
     void init_object_data()
     {
+        LOG(LSL_DEBUG, me() << info() << "Initializing object data");
+
         objectId id = 0;
 
         for (const auto& constant : sala_ir_->get_constants())
@@ -73,6 +107,10 @@ class Impl
         }
 
         last_local_id_ = id - 1;
+
+        LOG(LSL_DEBUG, me() << info() << "Initialized object data: global_objects="
+                            << global_objects_.size() << ", local_objects=" << local_objects_.size()
+                            << ", last_local_id=" << last_local_id_);
     }
 
     void register_constant_object(const program::ConstantIR_sptr& constant, objectId id)
@@ -99,15 +137,22 @@ class Impl
 
     void init_states()
     {
+        LOG(LSL_DEBUG, me() << info() << "Initializing states");
+
         out_may_.reset(cfg_.size());
         in_may_scratch_.clear();
         first_visit_.assign(cfg_.size(), true);
+
+        LOG(LSL_DEBUG, me() << info() << "Initialized states: blocks=" << cfg_.size());
     }
 
     void solve_static_initializer()
     {
+        LOG(LSL_DEBUG, me() << info() << "Solving static initializer");
+
         if (cfg_.size() == 0)
         {
+            LOG(LSL_DEBUG, me() << info() << "Skipping solve: empty CFG");
             return;
         }
 
@@ -117,11 +162,16 @@ class Impl
         worklist.push(cfg_.entry());
         in_worklist[cfg_.entry()] = 1;
 
+        std::size_t iterations = 0;
+
         while (!worklist.empty())
         {
+            ++iterations;
             const auto block = pop_worklist(worklist, in_worklist);
             solve_block(block, worklist, in_worklist);
         }
+
+        LOG(LSL_DEBUG, me() << info() << "Solved static initializer: iterations=" << iterations);
     }
 
     std::size_t pop_worklist(std::queue<std::size_t>& worklist,
@@ -240,8 +290,11 @@ class Impl
 
     void materialize()
     {
+        LOG(LSL_DEBUG, me() << info() << "Materializing metadata");
+
         if (cfg_.empty())
         {
+            LOG(LSL_DEBUG, me() << info() << "Skipping materialize: empty CFG");
             return;
         }
 
@@ -250,6 +303,8 @@ class Impl
         materialize_basic_blocks_and_exit_summary(*program_points_to_meta);
         attach_static_initializer_metadata();
         attach_program_metadata(std::move(program_points_to_meta));
+
+        LOG(LSL_DEBUG, me() << info() << "Materialized metadata");
     }
 
     void materialize_basic_blocks_and_exit_summary(
@@ -443,11 +498,17 @@ class Impl
 
     std::vector<bool> first_visit_;
 };
+
 } // namespace
 
 void GlobalPointsToAnalysis::run(program::ProgramIR_sptr sala_ir)
 {
-    TMPROF_BLOCK()
-    const auto trigger = Impl(std::move(sala_ir));
+    LOG(LSL_INFO, me() << "Running");
+    {
+        TMPROF_BLOCK()
+        const auto trigger = Impl(std::move(sala_ir));
+    }
+    LOG(LSL_INFO, me() << "Done");
 }
+
 } // namespace optimizer::passes
