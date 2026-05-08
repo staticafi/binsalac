@@ -1,12 +1,14 @@
 #include <optimizer/passes/analysis/available_copy_analysis.hpp>
 
 #include <optimizer/metadata/available_copy.hpp>
+#include <optimizer/pipeline/pass_names.hpp>
 #include <optimizer/programIR/basic_block_ir.hpp>
 #include <optimizer/programIR/constant_ir.hpp>
 #include <optimizer/programIR/function_ir.hpp>
 #include <optimizer/programIR/instruction_ir.hpp>
 #include <optimizer/programIR/program_ir.hpp>
 #include <optimizer/programIR/variable_ir.hpp>
+#include <optimizer/query/translation_query.hpp>
 #include <optimizer/utils/available_copy/import.hpp>
 #include <optimizer/utils/dynamic_bitset.hpp>
 #include <optimizer/utils/sparse_map.hpp>
@@ -26,6 +28,13 @@ namespace optimizer::passes
 {
 namespace
 {
+std::string me()
+{
+    std::ostringstream oss;
+    oss << pipeline::names::available_copy;
+    oss << ": ";
+    return oss.str();
+}
 
 bool is_valid_copy_instruction(const program::InstructionIR_sptr& instruction)
 {
@@ -76,6 +85,25 @@ class FunctionContext
     }
 
   private:
+    std::string info() const
+    {
+        auto program = function_->get_program();
+        ASSUMPTION(program != nullptr);
+
+        query::TranslationQuery translation{program};
+
+        auto name = translation.function_name(function_);
+
+        if (name.empty())
+        {
+            name = "<unnamed>";
+        }
+
+        std::ostringstream oss;
+        oss << "[" << name << "] ";
+        return oss.str();
+    }
+
     using ReachabilityMatrix = std::vector<std::vector<bool>>;
 
     template <typename Fn>
@@ -114,18 +142,27 @@ class FunctionContext
 
     void init_data()
     {
+        LOG(LSL_DEBUG, me() << info() << "Initializing data");
+
         collect_variables();
         collect_facts();
         init_states();
+
+        LOG(LSL_DEBUG, me() << info() << "Initialized data: variables=" << NV_
+                            << ", facts=" << facts_.size() << ", blocks=" << cfg_.size());
     }
 
     void collect_variables()
     {
+        LOG(LSL_DEBUG, me() << info() << "Collecting variables");
+
         variable_ids_.clear();
         NV_ = 0;
 
         for_each_variable([this](const program::VariableIR_sptr& variable)
                           { add_variable(variable); });
+
+        LOG(LSL_DEBUG, me() << info() << "Collected variables: count=" << NV_);
     }
 
     void add_variable(const program::VariableIR_sptr& variable)
@@ -141,6 +178,8 @@ class FunctionContext
 
     void collect_facts()
     {
+        LOG(LSL_DEBUG, me() << info() << "Collecting copy facts");
+
         init_fact_containers();
         build_variables_by_id();
 
@@ -148,6 +187,8 @@ class FunctionContext
         compute_transitive_closure(reach);
         materialize_facts_from_reachability(reach);
         build_fact_indexes_and_kill_masks();
+
+        LOG(LSL_DEBUG, me() << info() << "Collected copy facts: count=" << facts_.size());
     }
 
     void init_fact_containers()
@@ -363,8 +404,11 @@ class FunctionContext
 
     void solve()
     {
+        LOG(LSL_DEBUG, me() << info() << "Solving data-flow");
+
         if (cfg_.empty())
         {
+            LOG(LSL_DEBUG, me() << info() << "Skipping solve: empty CFG");
             return;
         }
 
@@ -373,10 +417,15 @@ class FunctionContext
 
         enqueue_entry(worklist, in_worklist);
 
+        std::size_t iterations = 0;
+
         while (!worklist.empty())
         {
+            ++iterations;
             process_next_block(worklist, in_worklist);
         }
+
+        LOG(LSL_DEBUG, me() << info() << "Solved data-flow: iterations=" << iterations);
     }
 
     void enqueue_entry(std::queue<std::size_t>& worklist, std::vector<char>& in_worklist) const
@@ -602,8 +651,12 @@ class Impl
 
 void AvailableCopyAnalysis::run(program::ProgramIR_sptr sala_ir)
 {
-    TMPROF_BLOCK()
-    const auto trigger = Impl(std::move(sala_ir));
+    LOG(LSL_INFO, me() << "Running");
+    {
+        TMPROF_BLOCK()
+        const auto trigger = Impl(std::move(sala_ir));
+    }
+    LOG(LSL_INFO, me() << "Done");
 }
 
 } // namespace optimizer::passes

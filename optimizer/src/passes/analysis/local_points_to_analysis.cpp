@@ -2,21 +2,26 @@
 
 #include <optimizer/metadata/points_to.hpp>
 #include <optimizer/metadata/translation.hpp>
+#include <optimizer/pipeline/pass_names.hpp>
 #include <optimizer/programIR/basic_block_ir.hpp>
 #include <optimizer/programIR/constant_ir.hpp>
 #include <optimizer/programIR/function_ir.hpp>
 #include <optimizer/programIR/instruction_ir.hpp>
+#include <optimizer/programIR/program_ir.hpp>
 #include <optimizer/programIR/variable_ir.hpp>
+#include <optimizer/query/translation_query.hpp>
 #include <optimizer/utils/points_to/import.hpp>
 #include <optimizer/utils/view/flattened_cfg_view.hpp>
 
 #include <utility/assumptions.hpp>
+#include <utility/log.hpp>
 #include <utility/timeprof.hpp>
 
 #include <algorithm>
 #include <memory>
 #include <optional>
 #include <queue>
+#include <sstream>
 #include <vector>
 
 namespace optimizer::passes
@@ -30,6 +35,14 @@ using utils::objectId;
 namespace
 {
 // Free functions
+
+std::string me()
+{
+    std::ostringstream oss;
+    oss << pipeline::names::local_points_to;
+    oss << ": ";
+    return oss.str();
+}
 
 void merge_optional_function_export(std::optional<MayAnalysisState>& target,
                                     MayAnalysisState                 source)
@@ -79,12 +92,18 @@ class FunctionContext
 
     void run(MayAnalysisState global_may_seed)
     {
+        LOG(LSL_DEBUG, me() << info() << "Running function context");
+
         global_may_seed_ = std::move(global_may_seed);
         solve();
+
+        LOG(LSL_DEBUG, me() << info() << "Done function context");
     }
 
     void materialize()
     {
+        LOG(LSL_DEBUG, me() << info() << "Materializing metadata");
+
         for (std::size_t block = 0; block < cfg_.size(); ++block)
         {
             MayAnalysisState may_in{};
@@ -93,6 +112,8 @@ class FunctionContext
         }
 
         attach_function_points_to_metadata();
+
+        LOG(LSL_DEBUG, me() << info() << "Materialized metadata");
     }
 
     std::optional<MayAnalysisState> get_after_global_states() const
@@ -114,11 +135,35 @@ class FunctionContext
     }
 
   private:
+    std::string info() const
+    {
+        const auto program = function_->get_program();
+        ASSUMPTION(program != nullptr);
+
+        query::TranslationQuery translation{program};
+
+        auto name = translation.function_name(function_);
+        if (name.empty())
+        {
+            name = "<unnamed>";
+        }
+
+        std::ostringstream oss;
+        oss << "[" << name << "] ";
+        return oss.str();
+    }
+
     void init_data()
     {
+        LOG(LSL_DEBUG, me() << info() << "Initializing data");
+
         load_global_data();
         init_states();
         init_local_objects();
+
+        LOG(LSL_DEBUG, me() << info() << "Initialized data: blocks=" << cfg_.size()
+                            << ", local_objects=" << local_objects_.size()
+                            << ", assumed_ptr_params=" << assumed_ptr_params_.size());
     }
 
     void load_global_data()
@@ -173,9 +218,12 @@ class FunctionContext
 
     void solve()
     {
+        LOG(LSL_DEBUG, me() << info() << "Solving data-flow");
+
         TMPROF_BLOCK()
         if (cfg_.empty())
         {
+            LOG(LSL_DEBUG, me() << info() << "Skipping solve: empty CFG");
             return;
         }
 
@@ -185,11 +233,16 @@ class FunctionContext
         std::vector<bool>       in_worklist(cfg_.size(), false);
         enqueue_entry(worklist, in_worklist);
 
+        std::size_t iterations = 0;
+
         while (!worklist.empty())
         {
+            ++iterations;
             const auto block = pop_worklist(worklist, in_worklist);
             solve_block(block, worklist, in_worklist);
         }
+
+        LOG(LSL_DEBUG, me() << info() << "Solved data-flow: iterations=" << iterations);
     }
 
     void reset_solver_state() { std::fill(has_out_.begin(), has_out_.end(), false); }
@@ -411,6 +464,7 @@ class FunctionContext
             }
         }
     }
+
     utils::MayValue project_may_value_to_global_scope(const utils::MayValue& value) const
     {
         if (value.is_top)
@@ -530,6 +584,8 @@ class Impl
   private:
     void init_function_contexts()
     {
+        LOG(LSL_DEBUG, me() << "Initializing function contexts");
+
         contexts_.reserve(sala_ir_->get_functions().size());
 
         const auto& program_meta = sala_ir_->get_metadata().get<metadata::points_to::ProgramMeta>();
@@ -545,25 +601,37 @@ class Impl
 
             contexts_.emplace_back(function_id++, function, local_id_start);
         }
+
+        LOG(LSL_DEBUG, me() << "Initialized function contexts: count=" << contexts_.size());
     }
 
     void run_function_contexts()
     {
+        LOG(LSL_DEBUG, me() << "Running function contexts");
+
         TMPROF_BLOCK()
         if (contexts_.empty())
         {
+            LOG(LSL_DEBUG, me() << "Skipping function contexts: empty context list");
             return;
         }
 
         auto& program_meta = sala_ir_->get_metadata().get<metadata::points_to::ProgramMeta>();
 
-        bool fixpoint_reached = false;
+        bool        fixpoint_reached = false;
+        std::size_t iterations       = 0;
+
         do
         {
+            ++iterations;
+            LOG(LSL_DEBUG, me() << "Running global fixpoint iteration " << iterations);
+
             auto next_global_state = compute_next_global_state(program_meta.may_out);
             fixpoint_reached       = update_global_state_if_needed(program_meta.may_out,
                                                                    std::move(next_global_state));
         } while (!fixpoint_reached);
+
+        LOG(LSL_DEBUG, me() << "Function contexts reached fixpoint: iterations=" << iterations);
     }
 
     std::optional<MayAnalysisState>
@@ -601,22 +669,32 @@ class Impl
 
     void materialize()
     {
+        LOG(LSL_DEBUG, me() << "Materializing function contexts");
+
         while (!contexts_.empty())
         {
             contexts_.back().materialize();
             contexts_.pop_back();
         }
+
+        LOG(LSL_DEBUG, me() << "Materialized function contexts");
     }
 
   private:
     program::ProgramIR_sptr      sala_ir_;
     std::vector<FunctionContext> contexts_;
 };
+
 } // namespace
 
 void LocalPointsToAnalysis::run(program::ProgramIR_sptr sala_ir)
 {
+    LOG(LSL_DEBUG, me() << "Running");
+
     TMPROF_BLOCK()
     const auto trigger = Impl(std::move(sala_ir));
+
+    LOG(LSL_DEBUG, me() << "Done");
 }
+
 } // namespace optimizer::passes
