@@ -13,12 +13,26 @@
 
 static optimizer::OptimizerConfig parse_optimizer_config()
 {
+    constexpr auto             default_pipeline = optimizer::PipelineKind::default_p;
     optimizer::OptimizerConfig optimizer_config;
 
     if (get_program_options()->has("pipeline"))
     {
         optimizer_config.pipeline =
                 optimizer::pipeline_kind_from_string(get_program_options()->value("pipeline"));
+    }
+    else
+    {
+        optimizer_config.pipeline = default_pipeline;
+    }
+
+    if (get_program_options()->has("no_opt"))
+    {
+        optimizer_config.run_opt = false;
+    }
+    else
+    {
+        optimizer_config.run_opt = true;
     }
 
     return optimizer_config;
