@@ -7,14 +7,14 @@
 namespace optimizer::pipeline
 {
 
-using ExperimentalDebugPipeline =
+using DebugPipeline =
         TypedPipeline<Repr::Sala, LowerSalaToIRPass, MergeConstantsPass, GlobalPointsToPass,
                       LocalPointsToPass, DumpPointsToPass, RemoveIndirectionsPass,
                       AvailableCopyPass, DumpAvailCopyPass, PropagateCopyPass, LivenessPass,
                       DumpLivenessPass, DeadInstructionEliminationPass,
                       DeadVariablesEliminationPass, BumpIrToSalaPass>;
 
-using ExperimentalPipeline =
+using DefaultPipeline =
         TypedPipeline<Repr::Sala, LowerSalaToIRPass, MergeConstantsPass, GlobalPointsToPass,
                       LocalPointsToPass, RemoveIndirectionsPass, AvailableCopyPass,
                       PropagateCopyPass, LivenessPass, DeadInstructionEliminationPass,

@@ -8,7 +8,11 @@ program_options::program_options(int argc, char* argv[]) : program_options_defau
     add_option("output", "Pathname to the output Sala file (.json).", "1");
     add_option("jsonc", "When specified a Sala file with dbg lines (.jsonc) is saved as well.",
                "0");
-    add_option("pipeline", "Optimizer pipeline to run. Supported values: exp, exp_debug.", "1");
+    add_option("no_opt", "When specified optimization is turned off", "0");
+    add_option(
+            "pipeline",
+            "Optimizer pipeline to run. Supported values: default, debug. Default value: default",
+            "1");
 }
 
 static program_options_ptr global_program_options;
