@@ -19,7 +19,7 @@ Optimizer::Optimizer(OptimizerConfig config) : config_(config)
 
 std::shared_ptr<sala::Program> Optimizer::run(std::shared_ptr<sala::Program> program)
 {
-    if (!config_.pipeline.has_value())
+    if (config_.run_opt == false || !config_.pipeline.has_value())
     {
         return program;
     }

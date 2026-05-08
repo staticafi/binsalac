@@ -10,25 +10,26 @@ namespace optimizer
 
 enum class PipelineKind
 {
-    exp, // experimental
-    exp_debug,
+    default_p, // experimental
+    debug,
 };
 
 struct OptimizerConfig
 {
+    bool                        run_opt;
     std::optional<PipelineKind> pipeline{};
 };
 
 inline PipelineKind pipeline_kind_from_string(std::string const& value)
 {
-    if (value == "exp")
+    if (value == "default")
     {
-        return PipelineKind::exp;
+        return PipelineKind::default_p;
     }
 
-    if (value == "exp_debug")
+    if (value == "debug")
     {
-        return PipelineKind::exp_debug;
+        return PipelineKind::debug;
     }
 
     throw std::runtime_error("Unknown optimizer pipeline: " + value);
