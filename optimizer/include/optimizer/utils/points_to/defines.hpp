@@ -20,18 +20,18 @@ using ObjectPool = utils::SparseMap<objectId, Object>;
 
 using MayState = SparseMap<objectId, MayValue>;
 
-using MustState = SparseMap<objectId, Target>;
+using UniqueState = SparseMap<objectId, Target>;
 
 struct MayAnalysisState
 {
-    MayState  may{};
-    MustState must{};
-    bool      poisoned{false};
+    MayState    may{};
+    UniqueState unique{};
+    bool        poisoned{false};
 
     void clear() noexcept
     {
         may.clear();
-        must.clear();
+        unique.clear();
         poisoned = false;
     }
 
@@ -42,7 +42,7 @@ struct MayAnalysisState
             return poisoned == other.poisoned;
         }
 
-        return must == other.must && may == other.may;
+        return unique == other.unique && may == other.may;
     }
 };
 
@@ -80,7 +80,7 @@ void merge_state(MayAnalysisState& target, const MayAnalysisState& source, bool&
 
 void dump_may_set(const MayAnalysisState& state);
 
-void dump_must_set(const MustState& must_in);
+void dump_unique_set(const UniqueState& must_in);
 void dump_must_set(const MayAnalysisState& state);
 
 void handle_call_boundary(std::span<const objectId>       escaped_args,

@@ -78,25 +78,25 @@ PointsToResult make_poisoned_result()
 {
     PointsToResult result{};
     result.poisoned = true;
-    result.must     = std::nullopt;
+    result.unique   = std::nullopt;
     result.may.clear();
     return result;
 }
 
-PointsToResult make_result_from_value(const MayValue* value, std::optional<Target> must)
+PointsToResult make_result_from_value(const MayValue* value, std::optional<Target> unqiue)
 {
     PointsToResult result{};
 
     if (value == nullptr)
     {
         result.poisoned = false;
-        result.must     = std::nullopt;
+        result.unique   = std::nullopt;
         result.may.clear();
         return result;
     }
 
     result.poisoned = false;
-    result.must     = std::move(must);
+    result.unique   = std::move(unqiue);
     result.may      = value->targets;
     return result;
 }
@@ -108,12 +108,13 @@ PointsToResult make_result_from_state(const MayAnalysisState& state, const objec
         return make_poisoned_result();
     }
 
-    const auto may_it  = state.may.find(queried_id);
-    const auto must_it = state.must.find(queried_id);
+    const auto may_it    = state.may.find(queried_id);
+    const auto unqiue_it = state.unique.find(queried_id);
 
-    return make_result_from_value(
-            may_it == state.may.end() ? nullptr : &may_it->second,
-            must_it == state.must.end() ? std::nullopt : std::optional<Target>{must_it->second});
+    return make_result_from_value(may_it == state.may.end() ? nullptr : &may_it->second,
+                                  unqiue_it == state.unique.end()
+                                          ? std::nullopt
+                                          : std::optional<Target>{unqiue_it->second});
 }
 
 } // namespace
