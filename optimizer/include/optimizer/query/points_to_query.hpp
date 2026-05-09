@@ -17,7 +17,7 @@ using MayAnalysisState = utils::points_to::MayAnalysisState;
 struct PointsToResult
 {
     bool                     poisoned{false};
-    std::optional<Target>    must;
+    std::optional<Target>    unique;
     utils::SparseSet<Target> may;
 };
 

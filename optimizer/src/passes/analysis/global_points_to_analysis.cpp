@@ -390,13 +390,13 @@ class Impl
             }
         }
 
-        const auto source_must_iter = source.must.find(object_id);
-        if (source_must_iter != source.must.end())
+        const auto source_must_iter = source.unique.find(object_id);
+        if (source_must_iter != source.unique.end())
         {
             if (auto projected_must = project_must_to_global_scope(source_must_iter->second);
                 projected_must.has_value())
             {
-                exported.must.insert_or_assign(object_id, projected_must.value());
+                exported.unique.insert_or_assign(object_id, projected_must.value());
             }
         }
     }

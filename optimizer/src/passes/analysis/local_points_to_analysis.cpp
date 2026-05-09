@@ -319,7 +319,7 @@ class FunctionContext
         {
             may_in.may.insert_or_assign(
                     param, utils::make_singleton(abstract_nodes::OUT_OF_LOCAL_SCOPE, false));
-            may_in.must.erase(param);
+            may_in.unique.erase(param);
         }
     }
 
@@ -454,13 +454,13 @@ class FunctionContext
             }
         }
 
-        const auto must_iter = local_out_may.must.find(object_id);
-        if (must_iter != local_out_may.must.end())
+        const auto unique_iter = local_out_may.unique.find(object_id);
+        if (unique_iter != local_out_may.unique.end())
         {
-            if (auto projected_must = project_must_value_to_global_scope(must_iter->second);
-                projected_must.has_value())
+            if (auto projected_unique = project_unique_value_to_global_scope(unique_iter->second);
+                projected_unique.has_value())
             {
-                exported_may.must.insert_or_assign(object_id, projected_must.value());
+                exported_may.unique.insert_or_assign(object_id, projected_unique.value());
             }
         }
     }
@@ -490,7 +490,7 @@ class FunctionContext
     }
 
     std::optional<utils::Target>
-    project_must_value_to_global_scope(const utils::Target& target) const
+    project_unique_value_to_global_scope(const utils::Target& target) const
     {
         if (!target.offset_flag && global_objects_->contains(target.id))
         {

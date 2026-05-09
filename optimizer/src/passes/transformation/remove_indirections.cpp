@@ -156,17 +156,17 @@ class FunctionContext
 
         const auto& indirect_variable = *(std::get<program::VariableIR_raw>(indirect_operand));
         const auto  points_to_result  = function_query_.before(instruction, indirect_variable);
-        if (!points_to_result.must.has_value())
+        if (!points_to_result.unique.has_value())
         {
             return;
         }
 
-        if (points_to_result.must->offset_flag)
+        if (points_to_result.unique->offset_flag)
         {
             return;
         }
 
-        const auto target_operand = function_query_.get_object(points_to_result.must->id);
+        const auto target_operand = function_query_.get_object(points_to_result.unique->id);
         if (!target_operand.has_value())
         {
             return;
