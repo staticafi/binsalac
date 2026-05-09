@@ -237,7 +237,7 @@ void apply_observable_payload_to_modifiable_cells(const std::vector<objectId>& m
         }
 
         // Calls are weak unknown external effects. Exactness of modified cells is lost.
-        context.state.must.erase(id);
+        context.state.unique.erase(id);
     }
 }
 } // namespace
@@ -255,7 +255,7 @@ void poison_may(const MayTransferContextBundle& context)
 void poison_may_state(MayAnalysisState& state) noexcept
 {
     state.may.clear();
-    state.must.clear();
+    state.unique.clear();
     state.poisoned = true;
 }
 
@@ -334,7 +334,7 @@ bool is_objectId_reachable(const MayTransferContextBundle& context, objectId sou
     return false;
 }
 
-void must_join_and(MustState& A, const MustState& B)
+void unique_join_and(UniqueState& A, const UniqueState& B)
 {
     A.intersect_keep_equal_with(B, [](const Target& lhs, const Target& rhs) { return lhs == rhs; });
 }
@@ -350,9 +350,9 @@ void state_join_cfg(MayAnalysisState& A, const MayAnalysisState& B)
     // May component: ordinary union/top join.
     A.may.union_join_with(B.may, [](MayValue& lhs, const MayValue& rhs) { lhs.join_with(rhs); });
 
-    // Must component: strict agreement.
-    // A must fact survives only when both incoming states contain the same fact.
-    must_join_and(A.must, B.must);
+    // Unique component: strict agreement.
+    // A unique fact survives only when both incoming states contain the same fact.
+    unique_join_and(A.unique, B.unique);
 }
 
 void dump_may_set(const MayState& may_in)
@@ -381,10 +381,10 @@ void dump_may_set(const MayAnalysisState& state)
     dump_may_set(state.may);
 }
 
-void dump_must_set(const MustState& must_in)
+void dump_unique_set(const UniqueState& unique_in)
 {
-    std::cout << "========== DUMPING MUST =========== \n";
-    for (const auto& [cell, target] : must_in)
+    std::cout << "========== DUMPING UNIQUE=========== \n";
+    for (const auto& [cell, target] : unique_in)
     {
         std::cout << cell << " = " << target << ";\n ";
     }
@@ -403,7 +403,7 @@ void dump_must_set(const MayAnalysisState& state)
         return;
     }
 
-    dump_must_set(state.must);
+    dump_unique_set(state.unique);
 }
 
 void merge_state(MayAnalysisState& target, const MayAnalysisState& source, bool& initialized)

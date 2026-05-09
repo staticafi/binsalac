@@ -8,7 +8,7 @@ namespace optimizer::utils::points_to
 {
 namespace
 {
-inline std::size_t hash_must_map(const MustState& state) noexcept
+inline std::size_t hash_unique_map(const UniqueState& state) noexcept
 {
     std::size_t seed = std::hash<std::size_t>{}(state.size());
 
@@ -39,7 +39,7 @@ inline std::size_t hash_may_state(const MayAnalysisState& state) noexcept
     if (!state.poisoned)
     {
         hash_combine(seed, hash_may_map(state.may));
-        hash_combine(seed, hash_must_map(state.must));
+        hash_combine(seed, hash_unique_map(state.unique));
     }
 
     return seed;

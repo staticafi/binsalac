@@ -50,10 +50,10 @@ void dump_may_state(std::ostream& out, const utils::MayAnalysisState& state, std
     out << "<<\n";
 }
 
-void dump_must_state(std::ostream& out, const utils::MayAnalysisState& state,
-                     std::string_view label, int offset)
+void dump_unique_state(std::ostream& out, const utils::MayAnalysisState& state,
+                       std::string_view label, int offset)
 {
-    out << utils::get_offset(offset) << " >>" << label << " MUST: ";
+    out << utils::get_offset(offset) << " >>" << label << " UNIQUE: ";
 
     if (state.poisoned)
     {
@@ -61,10 +61,10 @@ void dump_must_state(std::ostream& out, const utils::MayAnalysisState& state,
     }
     else
     {
-        for (const auto& kvp : state.must)
+        for (const auto& kvp : state.unique)
         {
-            const auto must_fact = kvp.second;
-            out << kvp.first << " -> " << must_fact << "; ";
+            const auto unique_fact = kvp.second;
+            out << kvp.first << " -> " << unique_fact << "; ";
         }
     }
 
@@ -232,7 +232,7 @@ struct Impl
                     function_points_to_meta.bb_may_state_store->get(points_to_meta.may_in_id);
 
             dump_may_state(out, state, "BB-IN", offset);
-            dump_must_state(out, state, "BB-IN", offset);
+            dump_unique_state(out, state, "BB-IN", offset);
         }
 
         out << utils::get_offset(offset) << "{\n";
@@ -271,7 +271,7 @@ struct Impl
             const auto after_state  = query.after_state(instruction);
 
             dump_may_state(out, before_state, "BEFORE", offset);
-            dump_must_state(out, before_state, "BEFORE", offset);
+            dump_unique_state(out, before_state, "BEFORE", offset);
 
             out << utils::get_offset(offset)
                 << utils::instruction_opcode_to_string(instruction->get_opcode());
@@ -284,7 +284,7 @@ struct Impl
             out << "\n";
 
             dump_may_state(out, after_state, "AFTER", offset);
-            dump_must_state(out, after_state, "AFTER", offset);
+            dump_unique_state(out, after_state, "AFTER", offset);
         }
     }
 
