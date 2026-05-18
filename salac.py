@@ -55,7 +55,7 @@ class Salac:
             self.log("C -> llvm", end=' ')
             t0 = time.time()
             if self._execute(
-                    [ "clang", "-O" + str(self.opt_level), "-g", "-S", "-emit-llvm", "-Wno-everything", "-fbracket-depth=1024",
+                    [ "clang-18", "-O" + str(self.opt_level), "-g", "-S", "-emit-llvm", "-Wno-everything", "-fbracket-depth=1024",
                         ("-m32" if self.use_m32 is True else ""),
                         os.path.join(in_dir, in_name + in_ext),
                         "-o", os.path.join(self.output_dir, in_name + ".ll"),
