@@ -236,7 +236,7 @@ void apply_observable_payload_to_modifiable_cells(const std::vector<objectId>& m
             it->second.join_with(observable_payload);
         }
 
-        // Calls are weak unknown external effects. Exactness of modified cells is lost.
+        // Calls are weak unknown external effects. Uniqueness of modified cells is lost.
         context.state.unique.erase(id);
     }
 }

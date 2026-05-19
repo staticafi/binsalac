@@ -262,7 +262,6 @@ void apply_backward_transfer(const program::InstructionIR_sptr& instruction,
     LiveSet defs;
     collect_uses_and_defs(instruction, uses, defs);
 
-    // XXX: The order is extremly important
     for (const auto& def : defs)
     {
         live_before.erase(def);

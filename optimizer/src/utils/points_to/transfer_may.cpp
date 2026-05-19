@@ -148,7 +148,7 @@ bool merge_object_points_to_into_object(MayAnalysisState& state, const objectId 
     if (source_may_iter == state.may.end())
     {
         // Missing source contains no may information to join.
-        // The destination may component is unchanged, but exactness is lost.
+        // The destination may component is unchanged, but uniqueness is lost.
         state.unique.erase(target_id);
         return false;
     }
@@ -270,7 +270,7 @@ void store_through_pointer(MayAnalysisState& state, MayValue& dst_ptr_value, obj
             else
             {
                 // No may information to join from the source.
-                // Exactness is handled below.
+                // Uniqness is handled below.
             }
         }
         else if (transfer.has_value())
@@ -479,7 +479,6 @@ void apply_transfer_may_address(const MayTransferContextBundle& context)
     ASSUMPTION(context.operands_count == 2);
     const auto vN_id = context.operands_id[0];
     const auto vM_id = context.operands_id[1];
-    // strong update
     set_singleton_cell(context.state, vN_id, Target{.id = vM_id, .offset_flag = false});
 }
 
@@ -491,7 +490,7 @@ void apply_transfer_may_copy(const MayTransferContextBundle& context)
     const auto vN_id = context.operands_id[0];
     const auto xM_id = context.operands_id[1];
 
-    strong_transfer(vN_id, xM_id, context);
+    copy_cell(context.state, vN_id, xM_id);
 }
 
 // ALLOCA n vN nM cH; void* vN = (void*)((char*)vM + (nH * cG))
@@ -794,10 +793,10 @@ void apply_transfer_may(const MayTransferContextBundle& context)
         return;
 
     case sala::Instruction::Opcode::ADDRESS:
-        return apply_transfer_may_address(context); // correct
+        return apply_transfer_may_address(context);
 
     case sala::Instruction::Opcode::COPY:
-        return apply_transfer_may_copy(context); // correct
+        return apply_transfer_may_copy(context);
 
     case sala::Instruction::Opcode::LOAD:
         return apply_transfer_may_load(context);
@@ -806,10 +805,10 @@ void apply_transfer_may(const MayTransferContextBundle& context)
         return apply_transfer_may_store(context);
 
     case sala::Instruction::Opcode::ALLOCA:
-        return apply_transfer_may_alloca(context); // correct
+        return apply_transfer_may_alloca(context);
 
     case sala::Instruction::Opcode::MALLOC:
-        return apply_transfer_may_malloc(context); // correct
+        return apply_transfer_may_malloc(context);
 
     case sala::Instruction::Opcode::I2P:
         return apply_transfer_may_i2p(context);
@@ -821,10 +820,10 @@ void apply_transfer_may(const MayTransferContextBundle& context)
         return apply_transfer_may_memcpy_memmove(context);
 
     case sala::Instruction::Opcode::MOVEPTR:
-        return apply_transfer_may_moveptr(context); // correct
+        return apply_transfer_may_moveptr(context);
 
     case sala::Instruction::Opcode::MEMSET:
-        return apply_transfer_may_memset(context); // correct
+        return apply_transfer_may_memset(context);
 
     case sala::Instruction::Opcode::STACKRESTORE:
         return apply_transfer_may_stackrestore(context);
