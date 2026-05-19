@@ -15,6 +15,7 @@ target_link_libraries(${THIS_TARGET_NAME}
     ${BOOST_LIST_OF_LIBRARIES_TO_LINK_WITH}
     )
 
+# Currently colides with the salac.py invocation script as such we do not append with build type
 # set_target_properties(${THIS_TARGET_NAME} PROPERTIES
 #     DEBUG_OUTPUT_NAME "${THIS_TARGET_NAME}_${CMAKE_SYSTEM_NAME}_Debug"
 #     RELEASE_OUTPUT_NAME "${THIS_TARGET_NAME}_${CMAKE_SYSTEM_NAME}_Release"
