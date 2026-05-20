@@ -10,7 +10,7 @@ namespace optimizer
 
 enum class PipelineKind
 {
-    default_p, // experimental
+    default_p,
     debug,
 };
 
