@@ -14,6 +14,7 @@
 #include <optimizer/utils/sparse_set.hpp>
 
 #include <utility/assumptions.hpp>
+#include <sala/opcode_to_string.hpp>
 
 #include <filesystem>
 #include <fstream>
@@ -270,7 +271,7 @@ struct Impl
             ASSUMPTION(instruction != nullptr);
 
             out << utils::get_offset(offset)
-                << utils::instruction_opcode_to_string(instruction->get_opcode());
+                << sala::instruction_opcode_to_string(instruction->get_opcode());
 
             constexpr int operand_sep = 1;
             for (const auto& operand : instruction->get_operands())
