@@ -16,6 +16,7 @@
 #include <utility/assumptions.hpp>
 #include <utility/development.hpp>
 #include <utility/invariants.hpp>
+#include <sala/opcode_to_string.hpp>
 
 #include <filesystem>
 #include <fstream>
@@ -279,7 +280,7 @@ struct Impl
         for (const auto& instruction : instructions)
         {
             out << utils::get_offset(offset)
-                << utils::instruction_opcode_to_string(instruction->get_opcode());
+                << sala::instruction_opcode_to_string(instruction->get_opcode());
 
             constexpr int operand_sep = 1;
             for (const auto& operand : instruction->get_operands())

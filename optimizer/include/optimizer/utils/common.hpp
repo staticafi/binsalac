@@ -7,8 +7,6 @@
 #include <string>
 namespace optimizer::utils
 {
-std::string instruction_opcode_to_string(sala::Instruction::Opcode const opcode);
-
 std::string get_offset(int offset);
 
 std::string_view get_function_name(const program::FunctionIR& function);

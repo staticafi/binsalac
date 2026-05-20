@@ -12,7 +12,7 @@
 #include <optimizer/utils/common.hpp>
 #include <optimizer/utils/points_to/import.hpp>
 
-#include <sala/streaming.hpp>
+#include <sala/opcode_to_string.hpp>
 #include <utility/assumptions.hpp>
 #include <utility/development.hpp>
 
@@ -274,7 +274,7 @@ struct Impl
             dump_unique_state(out, before_state, "BEFORE", offset);
 
             out << utils::get_offset(offset)
-                << utils::instruction_opcode_to_string(instruction->get_opcode());
+                << sala::instruction_opcode_to_string(instruction->get_opcode());
 
             constexpr int operand_sep = 1;
             for (const auto& operand : instruction->get_operands())
