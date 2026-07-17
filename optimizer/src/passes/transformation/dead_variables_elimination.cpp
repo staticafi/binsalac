@@ -27,7 +27,7 @@ using PendingRemoval = std::vector<program::VariableIR_sptr>;
 std::string me()
 {
     std::ostringstream oss;
-    oss << pipeline::names::dead_variables_eliminitation;
+    oss << pipeline::names::dead_variables_elimination;
     oss << ": ";
     return oss.str();
 }

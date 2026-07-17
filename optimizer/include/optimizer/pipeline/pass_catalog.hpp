@@ -89,7 +89,7 @@ using DeadInstructionEliminationPass =
 using DeadVariablesEliminationPass =
         PassDef<passes::DeadVariablesElimination,
                 TransformSpec<Repr::IR, ProductList<>, ProductList<>, products::TranslationAll,
-                              names::dead_variables_eliminitation>>;
+                              names::dead_variables_elimination>>;
 
 // Debug
 using DumpAvailCopyPass = PassDef<passes::DumpAvailCopy,
