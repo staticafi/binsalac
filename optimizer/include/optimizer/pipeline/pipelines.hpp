@@ -12,13 +12,13 @@ using DebugPipeline =
                       LocalPointsToPass, DumpPointsToPass, RemoveIndirectionsPass,
                       AvailableCopyPass, DumpAvailCopyPass, PropagateCopyPass, LivenessPass,
                       DumpLivenessPass, DeadInstructionEliminationPass,
-                      DeadVariablesEliminationPass, BumpIrToSalaPass>;
+                      DeadVariablesEliminationPass, BranchAfterPredicatesPass, BumpIrToSalaPass>;
 
 using DefaultPipeline =
         TypedPipeline<Repr::Sala, LowerSalaToIRPass, MergeConstantsPass, GlobalPointsToPass,
                       LocalPointsToPass, RemoveIndirectionsPass, AvailableCopyPass,
                       PropagateCopyPass, LivenessPass, DeadInstructionEliminationPass,
-                      DeadVariablesEliminationPass, BumpIrToSalaPass>;
+                      DeadVariablesEliminationPass, BranchAfterPredicatesPass, BumpIrToSalaPass>;
 
 } // namespace optimizer::pipeline
 

@@ -8,6 +8,7 @@ set(HEADER_FILES
   ${INCLUDE_DIR}/merge_constants.hpp
   ${INCLUDE_DIR}/propagate_copy.hpp
   ${INCLUDE_DIR}/remove_indirections.hpp
+  ${INCLUDE_DIR}/branch_after_predicates.hpp
 )
 
 set(SOURCE_FILES
@@ -16,6 +17,7 @@ set(SOURCE_FILES
   ${CMAKE_CURRENT_SOURCE_DIR}/merge_constants.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/propagate_copy.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/remove_indirections.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/branch_after_predicates.cpp
 )
 
 target_sources(optimizer PRIVATE ${SOURCE_FILES} ${HEADER_FILES})

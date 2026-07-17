@@ -18,6 +18,7 @@
 #include <optimizer/passes/transformation/merge_constants.hpp>
 #include <optimizer/passes/transformation/propagate_copy.hpp>
 #include <optimizer/passes/transformation/remove_indirections.hpp>
+#include <optimizer/passes/transformation/branch_after_predicates.hpp>
 
 // translation
 #include <optimizer/passes/translation/bump_ir_to_sala.hpp>
@@ -90,6 +91,11 @@ using DeadVariablesEliminationPass =
         PassDef<passes::DeadVariablesElimination,
                 TransformSpec<Repr::IR, ProductList<>, ProductList<>, products::TranslationAll,
                               names::dead_variables_elimination>>;
+
+using BranchAfterPredicatesPass =
+        PassDef<passes::BranchAfterPredicates,
+                TransformSpec<Repr::IR, ProductList<>, ProductList<>,
+                              products::TranslationAll, names::branch_after_predicates>>;
 
 // Debug
 using DumpAvailCopyPass = PassDef<passes::DumpAvailCopy,

@@ -15,6 +15,7 @@ inline constexpr char propagate_copy[]               = "PropagateCopy";
 inline constexpr char liveness[]                     = "LivenessAnalysis";
 inline constexpr char dead_instruction_elimination[] = "DeadInstructionElimination";
 inline constexpr char dead_variables_elimination[]   = "DeadVariablesElimination";
+inline constexpr char branch_after_predicates[]      = "BranchAfterPredicates";
 } // namespace optimizer::pipeline::names
 
 #endif
