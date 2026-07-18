@@ -29,9 +29,11 @@ class BasicBlockIR : public std::enable_shared_from_this<BasicBlockIR>
 
     void set_function(FunctionIR_sptr function);
     void acquire_instruction(InstructionIR_sptr instruction);
+    void acquire_instruction_front(InstructionIR_sptr instruction);
     InstructionIRListS_iter release_instruction(const InstructionIR_sptr& instruction);
 
     void add_successor(BasicBlockIR_sptr successor);
+    void add_successor_front(BasicBlockIR_sptr successor);
     void add_predecessor(BasicBlockIR_sptr predecessor);
 
     void remove_predecessor(const BasicBlockIR_sptr& predecessor);

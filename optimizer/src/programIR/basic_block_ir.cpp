@@ -57,6 +57,13 @@ void BasicBlockIR::add_successor(BasicBlockIR_sptr successor)
     successors_.emplace_back(std::move(successor));
 }
 
+void BasicBlockIR::add_successor_front(BasicBlockIR_sptr successor)
+{
+    ASSUMPTION(successor != nullptr);
+
+    successors_.emplace_front(std::move(successor));
+}
+
 void BasicBlockIR::add_predecessor(BasicBlockIR_sptr predecessor)
 {
     ASSUMPTION(predecessor != nullptr);
@@ -105,6 +112,20 @@ void BasicBlockIR::acquire_instruction(InstructionIR_sptr instruction)
     instruction->set_basic_block(shared_from_this());
     instructions_.push_back(std::move(instruction));
     instructions_.back()->get_self_it() = --instructions_.end();
+}
+
+void BasicBlockIR::acquire_instruction_front(InstructionIR_sptr instruction)
+{
+    ASSUMPTION(instruction != nullptr);
+
+    if (const auto owner_before = instruction->get_basic_block(); owner_before != nullptr)
+    {
+        owner_before->release_instruction(instruction);
+    }
+
+    instruction->set_basic_block(shared_from_this());
+    instructions_.push_front(std::move(instruction));
+    instructions_.back()->get_self_it() = instructions_.begin();
 }
 
 const InstructionIRListS& BasicBlockIR::get_instructions() const
