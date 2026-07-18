@@ -21,8 +21,6 @@ namespace optimizer::passes
 namespace
 {
 
-using PredicatesVec = std::vector<program::InstructionIR_sptr>;
-
 std::string me()
 {
     std::ostringstream oss;
@@ -51,7 +49,10 @@ std::string info(const program::FunctionIR_sptr& function)
     return oss.str();
 }
 
-void collect_internal_predicates(program::ProgramIR_sptr const& sala_ir, PredicatesVec& internal_predicates)
+void collect_internal_predicates(
+        program::ProgramIR_sptr const& sala_ir,
+        std::vector<program::InstructionIR_sptr>& internal_predicates
+        )
 {
     ASSUMPTION(sala_ir != nullptr);
 
@@ -215,7 +216,7 @@ class Impl
         LOG(LSL_DEBUG, me() << "Running implementation");
 
         {
-            PredicatesVec internal_predicates;
+            std::vector<program::InstructionIR_sptr> internal_predicates;
             collect_internal_predicates(sala_ir_, internal_predicates);
             if (!internal_predicates.empty())
             {
