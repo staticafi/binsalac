@@ -80,16 +80,17 @@ void BasicBlockIR::remove_successor(const BasicBlockIR_sptr& successor)
                           { return !w.owner_before(successor) && !successor.owner_before(w); });
 }
 
-void BasicBlockIR::release_instruction(const InstructionIR_sptr& instruction)
+InstructionIRListS_iter BasicBlockIR::release_instruction(const InstructionIR_sptr& instruction)
 {
     ASSUMPTION(instruction != nullptr);
     ASSUMPTION(instruction->get_basic_block_raw() == this);
     ASSUMPTION(instruction->get_basic_block().get() == this);
     ASSUMPTION(instruction->get_self_it().has_value());
 
-    instructions_.erase(instruction->get_self_it().value());
+    InstructionIRListS_iter next = instructions_.erase(instruction->get_self_it().value());
     instruction->set_basic_block(nullptr);
     instruction->get_self_it() = std::nullopt;
+    return next;
 }
 
 void BasicBlockIR::acquire_instruction(InstructionIR_sptr instruction)
