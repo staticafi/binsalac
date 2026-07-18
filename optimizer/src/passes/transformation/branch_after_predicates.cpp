@@ -9,6 +9,7 @@
 #include <optimizer/query/translation_query.hpp>
 
 #include <utility/assumptions.hpp>
+#include <utility/invariants.hpp>
 #include <utility/log.hpp>
 #include <utility/timeprof.hpp>
 
@@ -182,21 +183,127 @@ void create_diamond_after(program::InstructionIR_sptr const& instruction)
     basic_block_end->add_predecessor(basic_block_1);
 }
 
+bool branching_needs_fix(program::InstructionIR_sptr const& branch_instr)
+{
+    ASSUMPTION(branch_instr->get_basic_block()->get_successors().size() == 2ULL);
+    for (auto const& succ_block_wptr: branch_instr->get_basic_block()->get_successors())
+    {
+        auto succ_basic_block = succ_block_wptr.lock();
+
+        ASSUMPTION(succ_basic_block != nullptr && !succ_basic_block->get_instructions().empty());
+        auto const& first_instr = succ_basic_block->get_instructions().front();
+
+        if (first_instr->get_opcode() != sala::Instruction::Opcode::COPY)
+            return true;
+
+        ASSUMPTION(first_instr->get_operands().size() == 2ULL);
+        if (first_instr->get_operands().front() != branch_instr->get_operands().front())
+            return true;
+        if (!std::holds_alternative<program::ConstantIR_raw>(first_instr->get_operands().back()))
+            return true;
+    }
+    return false;
+}
+
 void insert_copy_after_branch(program::ProgramIR_sptr const& sala_ir)
 {
     ASSUMPTION(sala_ir != nullptr);
 
     LOG(LSL_DEBUG, me() << "Inserting COPY after BRANCH.");
 
-    // program::ConstantIR_sptr const zero = std::make_shared<program::ConstantIR>();
-    // zero->get_bytes().push_back(0U);
-    // sala_ir->acquire_constant(zero);
+    std::vector<program::InstructionIR_sptr> branchings_to_fix;
+    for (const auto& function : sala_ir->get_functions())
+    {
+        if (function == nullptr)
+            continue;
+        if (function->get_external_flag())
+        {
+            LOG(LSL_DEBUG, me() << info(function) << "Skipping external function");
+            continue;
+        }
+        if (function->get_initializer_flag())
+        {
+            LOG(LSL_DEBUG, me() << info(function) << "Skipping static initializer");
+            continue;
+        }
 
-    // program::ConstantIR_sptr const one = std::make_shared<program::ConstantIR>();
-    // one->get_bytes().push_back(1U);
-    // sala_ir->acquire_constant(one);
+        for (const auto& basic_block : function->get_basic_blocks())
+            for (const auto& instruction : basic_block->get_instructions())
+            {
+                ASSUMPTION(instruction != nullptr);
+                if (instruction->get_opcode() == sala::Instruction::Opcode::BRANCH && branching_needs_fix(instruction))
+                    branchings_to_fix.push_back(instruction);
+            }
+    }
 
-    // TODO!
+    if (branchings_to_fix.empty())
+    {
+        LOG(LSL_DEBUG, me() << "No branching needs fixing => we are done.");
+        return;
+    }
+
+    LOG(LSL_DEBUG, me() << "Found " << branchings_to_fix.size() << " BRANCH instructions to be fixed.");
+
+    program::ConstantIR_sptr constants[2];
+    {
+        constants[0] = std::make_shared<program::ConstantIR>();
+        constants[0]->get_bytes().push_back(0U);
+        sala_ir->acquire_constant(constants[0]);
+
+        constants[1] = std::make_shared<program::ConstantIR>();
+        constants[1]->get_bytes().push_back(1U);
+        sala_ir->acquire_constant(constants[1]);
+    }
+
+    for (auto const& branch_instr : branchings_to_fix)
+    {
+        auto const basic_block{ branch_instr->get_basic_block() };
+
+        program::BasicBlockIR_sptr const succ_basic_blocks[2] {
+            basic_block->get_successors().front().lock(),
+            basic_block->get_successors().back().lock()
+        };
+
+        for (std::size_t i = 0ULL; i != 2ULL; ++i)
+        {
+            program::InstructionIR_sptr new_instr = std::make_shared<program::InstructionIR>();
+            new_instr->get_opcode() = sala::Instruction::Opcode::COPY;
+            new_instr->get_modifier() = sala::Instruction::Modifier::NONE;
+            new_instr->get_operands().push_back(branch_instr->get_operands().front());
+            new_instr->push_back_operand(constants[i]);
+            new_instr->get_metadata().set(clone_instruction_metadata(branch_instr));
+
+            if (succ_basic_blocks[i]->get_predecessors().size() == 1ULL)
+            {
+                INVARIANT(succ_basic_blocks[i]->get_predecessors().front().lock() == basic_block);
+                succ_basic_blocks[i]->acquire_instruction_front(new_instr);
+                continue;
+            }
+
+            program::BasicBlockIR_sptr const new_basic_block = std::make_shared<program::BasicBlockIR>();
+            basic_block->get_function()->acquire_basic_block(new_basic_block);
+
+            new_basic_block->acquire_instruction_front(new_instr);
+
+            new_instr = std::make_shared<program::InstructionIR>();
+            new_instr->get_opcode() = sala::Instruction::Opcode::JUMP;
+            new_instr->get_modifier() = sala::Instruction::Modifier::NONE;
+            new_instr->get_metadata().set(clone_instruction_metadata(branch_instr));
+            new_basic_block->acquire_instruction(new_instr);
+
+            basic_block->remove_successor(succ_basic_blocks[i]);
+            succ_basic_blocks[i]->remove_predecessor(basic_block);
+
+            if (i == 0UL)
+                basic_block->add_successor_front(new_basic_block);
+            else
+                basic_block->add_successor(new_basic_block);
+            new_basic_block->add_predecessor(basic_block);
+
+            new_basic_block->add_successor(succ_basic_blocks[i]);
+            succ_basic_blocks[i]->add_predecessor(new_basic_block);
+        }
+    }
 
     LOG(LSL_DEBUG, me() << "Finished insertion of COPY after BRANCH: total fixes=" << 0);
 }
