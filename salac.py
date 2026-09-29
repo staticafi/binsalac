@@ -3,6 +3,8 @@ import subprocess
 import sys
 import os
 import time
+import psutil
+import shutil
 
 
 class Salac:
@@ -40,10 +42,34 @@ class Salac:
         elif brief_message is not None:
             print(brief_message, end="", flush=True)
 
-    def _execute(self, command_and_args, timeout_ = None):
+    def _execute(self, command_and_args, timeout_ = None, memoryout_ = None):
         cmd = [x for x in command_and_args if len(x) > 0]
         self.log(" ".join(cmd), end=' ')
-        return subprocess.run(cmd, timeout=timeout_).returncode == 0
+        process = subprocess.Popen(cmd)
+        start_time = time.time()
+        try:
+            ps_proc = psutil.Process(process.pid)
+            while process.poll() is None:
+                elapsed_time = time.time() - start_time
+                if timeout_ is not None and elapsed_time > timeout_:
+                    self.log(f"\"[{os.path.basename(cmd[0])}] Timeout of {timeout_}s exceeded.\"",
+                             f"\"[{os.path.basename(cmd[0])}] Timeout\"")
+                    process.kill()
+                    break
+                try:
+                    mem_info = ps_proc.memory_info()
+                    if memoryout_ is not None and mem_info.rss > memoryout_:
+                        self.log(f"\"[{os.path.basename(cmd[0])}] Memory limit of {memoryout_}B exceeded).\"",
+                                 f"\"[{os.path.basename(cmd[0])}] Memoryout\"")
+                        process.kill()
+                        break
+                except psutil.NoSuchProcess:
+                    break
+                time.sleep(0.1)
+        except psutil.NoSuchProcess:
+            pass
+        stdout, stderr = process.communicate()
+        return process.returncode == 0
 
     def compile(self) -> str:
         in_dir = os.path.dirname(self.input_path)
@@ -60,7 +86,7 @@ class Salac:
                         os.path.join(in_dir, in_name + in_ext),
                         "-o", os.path.join(self.output_dir, in_name + ".ll"),
                         ],
-                    None) is False:
+                    None, None) is False:
                 raise Exception("Translation from C to LLVM has failed: " + os.path.join(in_dir, in_name + in_ext))
             t1 = time.time()
             self.log("Done[%ds]" % int(round(t1 - t0)))
@@ -75,7 +101,7 @@ class Salac:
                         "--input", os.path.join(in_dir, in_name + in_ext),
                         "--output", os.path.join(self.output_dir, in_name + ".sim.ll")
                         ],
-                    None) is False:
+                    None, None) is False:
                 raise Exception("Simplification of LLVM has failed: " + os.path.join(in_dir, in_name + in_ext))
             t1 = time.time()
             self.log("Done[%ds]" % int(round(t1 - t0)))
@@ -91,7 +117,7 @@ class Salac:
                         "--output", os.path.join(self.output_dir, in_name + ".raw.json"),
                         "--entry", self.entry_function
                         ] + self.options,
-                    None) is False:
+                    None, None) is False:
                 raise Exception("Translation from LLVM to Sala has failed: " + os.path.join(in_dir, in_name + in_ext))
             t1 = time.time()
             self.log("Done[%ds]" % int(round(t1 - t0)))
@@ -106,7 +132,8 @@ class Salac:
                         "--input", os.path.join(in_dir, in_name + in_ext),
                         "--output", os.path.join(self.output_dir, out_name + ".json")
                         ] + self.options,
-                    None) is False:
+                    60, 2 * 1024 * 1024 * 1024) is False:
+                shutil.copyfile(os.path.join(in_dir, in_name + in_ext), os.path.join(self.output_dir, out_name + ".json"))
                 raise Exception("Optimization of Sala code has failed: " + os.path.join(in_dir, in_name + in_ext))
             t1 = time.time()
             self.log("Done[%ds]" % int(round(t1 - t0)))
