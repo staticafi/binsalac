@@ -12,6 +12,7 @@ enum class PipelineKind
 {
     default_p,
     debug,
+    branch_after_predicates,
 };
 
 struct OptimizerConfig
@@ -30,6 +31,11 @@ inline PipelineKind pipeline_kind_from_string(std::string const& value)
     if (value == "debug")
     {
         return PipelineKind::debug;
+    }
+
+    if (value == "branch_after_predicates")
+    {
+        return PipelineKind::branch_after_predicates;
     }
 
     throw std::runtime_error("Unknown optimizer pipeline: " + value);

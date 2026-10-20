@@ -16,6 +16,8 @@ inline std::unique_ptr<PipelineI> create_pipeline(optimizer::PipelineKind       
         return std::make_unique<DefaultPipeline>(std::move(program));
     case optimizer::PipelineKind::debug:
         return std::make_unique<DebugPipeline>(std::move(program));
+    case optimizer::PipelineKind::branch_after_predicates:
+        return std::make_unique<BranchAfterPredicatesPipeline>(std::move(program));
     default:
         NOT_SUPPORTED();
     }
