@@ -10,6 +10,7 @@
 #    pragma warning(push)
 #    pragma warning(disable : 4624 4996 4146 4800 4996 4005 4355 4244 4267)
 #endif
+#include <llvm/Config/llvm-config.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Instruction.h>
@@ -157,7 +158,11 @@ void compile_llvm_file(std::filesystem::path const& llvm_file_pathname, sala::Pr
         }
     }
 
+#if LLVM_VERSION_MAJOR <= 18
     P.set_system(M->getTargetTriple());
+#else
+    P.set_system(M->getTargetTriple().str());
+#endif
     P.set_num_cpu_bits((std::uint16_t)(8U * M->getDataLayout().getPointerSize()));
 
     std::string program_name{ llvm_file_pathname.filename().replace_extension("").string() };
