@@ -47,8 +47,14 @@ class Salac:
         self.log(" ".join(cmd), end=' ')
         process = subprocess.Popen(cmd)
         start_time = time.time()
+        is_windows = sys.platform.startswith('win')
+        if not is_windows:
+            try:
+                page_size = os.sysconf('SC_PAGE_SIZE')
+            except Exception:
+                page_size = 4096
+                self.log(f"\"Failed to read SC_PAGE_SIZE => using default page size {page_size}.\"")
         try:
-            ps_proc = psutil.Process(process.pid)
             while process.poll() is None:
                 elapsed_time = time.time() - start_time
                 if timeout_ is not None and elapsed_time > timeout_:
@@ -56,17 +62,43 @@ class Salac:
                              f"\"[{os.path.basename(cmd[0])}] Timeout\"")
                     process.kill()
                     break
-                try:
-                    mem_info = ps_proc.memory_info()
-                    if memoryout_ is not None and mem_info.rss > memoryout_:
-                        self.log(f"\"[{os.path.basename(cmd[0])}] Memory limit of {memoryout_}B exceeded).\"",
-                                 f"\"[{os.path.basename(cmd[0])}] Memoryout\"")
+                if memoryout_ is not None:
+                    rss_bytes = None
+                    if is_windows is False:
+                        try:
+                            with open(f"/proc/{process.pid}/statm", "r") as f:
+                                fields = f.read().split()
+                                if len(fields) > 1:
+                                    rss_pages = int(fields[1])
+                                    rss_bytes = rss_pages * page_size
+                        except Exception:
+                            if process.poll() is None:
+                                process.kill()
+                            break
+                    else:
+                        try:
+                            out = subprocess.check_output(
+                                f'tasklist /FI "PID eq {process.pid}" /FO CSV /NH', 
+                                shell=True, stderr=subprocess.DEVNULL
+                            ).decode('utf-8', errors='ignore')
+                            if str(process.pid) in out:
+                                parts = out.split(',')
+                                if len(parts) >= 5:
+                                    mem_str = parts[4].replace('"', '').replace(' ', '').replace('K', '').strip()
+                                    mem_str = ''.join(c for c in mem_str if c.isdigit())
+                                    if mem_str:
+                                        rss_bytes = int(mem_str) * 1024
+                        except Exception:
+                            if process.poll() is None:
+                                process.kill()
+                            break
+                    if rss_bytes is not None and rss_bytes > memoryout_:
+                        self.log(f"\"[{os.path.basename(cmd[0])}] Memory limit of {memoryout_}B exceeded.\"",
+                                f"\"[{os.path.basename(cmd[0])}] Memoryout\"")
                         process.kill()
                         break
-                except psutil.NoSuchProcess:
-                    break
                 time.sleep(0.1)
-        except psutil.NoSuchProcess:
+        except Exception:
             pass
         stdout, stderr = process.communicate()
         return process.returncode == 0
