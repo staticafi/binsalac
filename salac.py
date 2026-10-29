@@ -3,7 +3,6 @@ import subprocess
 import sys
 import os
 import time
-import psutil
 import shutil
 
 
