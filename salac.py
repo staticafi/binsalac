@@ -165,7 +165,7 @@ class Salac:
                         "--input", os.path.join(in_dir, in_name + in_ext),
                         "--output", os.path.join(self.output_dir, out_name + ".json")
                         ] + self.options,
-                    60, 2 * 1024 * 1024 * 1024) is False:
+                    20, 2 * 1024 * 1024 * 1024) is False:
                 shutil.copyfile(os.path.join(in_dir, in_name + in_ext), os.path.join(self.output_dir, out_name + ".json"))
                 raise Exception("Optimization of Sala code has failed: " + os.path.join(in_dir, in_name + in_ext))
             t1 = time.time()
