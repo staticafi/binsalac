@@ -53,7 +53,8 @@ class Salac:
                 page_size = os.sysconf('SC_PAGE_SIZE')
             except Exception:
                 page_size = 4096
-                self.log(f"\"Failed to read SC_PAGE_SIZE => using default page size {page_size}.\"")
+                self.log(f"\"[{os.path.basename(cmd[0])}] Failed to read SC_PAGE_SIZE => using default page size {page_size}.\"",
+                         f"\"[{os.path.basename(cmd[0])}] SC_PAGE_SIZE failed.\"")
         try:
             while process.poll() is None:
                 elapsed_time = time.time() - start_time
