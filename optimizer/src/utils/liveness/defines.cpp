@@ -287,20 +287,25 @@ bool is_instruction_removable(const program::InstructionIR_sptr& instruction,
         return false;
     }
 
-    LiveSet uses;
-    LiveSet defs;
-    collect_uses_and_defs(instruction, uses, defs);
+    bool has_def = false;
+    const auto opcode = instruction->get_opcode();
+    const auto& ops   = instruction->get_operands();
 
-    ASSUMPTION(!defs.empty());
-
-    for (const auto& def : defs)
+    for (std::size_t i = 0; i < ops.size(); ++i)
     {
-        if (live_after.contains(def))
+        if (!is_written_operand(opcode, i) || !is_trackable_operand(ops[i]))
+        {
+            continue;
+        }
+
+        has_def = true;
+        if (live_after.contains(ops[i]))
         {
             return false;
         }
     }
 
+    ASSUMPTION(has_def);
     return true;
 }
 

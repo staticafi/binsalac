@@ -95,6 +95,7 @@ class FunctionContext
 
         init_data();
         solve();
+        live_in_.clear();
         materialize();
 
         LOG(LSL_DEBUG, me() << info() << "Done function context");
@@ -226,10 +227,7 @@ class FunctionContext
 
     void add_successor_live_in(std::size_t succ, utils::LiveSet& live_out) const
     {
-        for (const auto& operand : live_in_[succ])
-        {
-            live_out.insert(operand);
-        }
+        live_out.union_with(live_in_[succ]);
     }
 
     utils::LiveSet compute_live_in(std::size_t block, const utils::LiveSet& live_out) const
@@ -302,7 +300,7 @@ class FunctionContext
     void materialize_block(std::size_t block)
     {
         auto bb_meta      = std::make_unique<metadata::liveness::BasicBlockMeta>();
-        bb_meta->live_out = live_out_[block];
+        bb_meta->live_out = std::move(live_out_[block]);
         bb_meta->removable_instructions.clear();
 
         compute_removable_instructions(block, *bb_meta);
