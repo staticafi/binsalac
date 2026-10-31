@@ -20,6 +20,7 @@ class Salac:
         self.entry_function = 'main'
         self.opt_level = 0
         self.use_m32 = False
+        self.use_sala_optimizer = True
         self.options = []
         self.verbose = False
 
@@ -162,7 +163,8 @@ class Salac:
             if self._execute(
                     [ os.path.join(self.dist_dir, "sala2sala" + self.tool_ext),
                         "--input", os.path.join(in_dir, in_name + in_ext),
-                        "--output", os.path.join(self.output_dir, out_name + ".json")
+                        "--output", os.path.join(self.output_dir, out_name + ".json"),
+                        ("--no_opt" if self.use_sala_optimizer is False else "")
                         ] + self.options,
                     20, 2 * 1024 * 1024 * 1024) is False:
                 shutil.copyfile(os.path.join(in_dir, in_name + in_ext), os.path.join(self.output_dir, out_name + ".json"))
@@ -220,6 +222,8 @@ class Salac:
                 i += 1
             elif arg == "--m32":
                 self.use_m32 = True
+            elif arg == "--no_opt":
+                self.use_sala_optimizer = False
             else:
                 self.options.append(arg)
 
