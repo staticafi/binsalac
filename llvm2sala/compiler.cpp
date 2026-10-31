@@ -399,14 +399,14 @@ std::uint32_t Compiler::moveptr_constant_index(std::int64_t const ptr_move)
     if (it == moveptr_constants_.end())
     {
         auto& sala_constant = program().push_back_constant();
-        if (sizeof(void*) == 4U)
+        if (module().getDataLayout().getPointerSize() == sizeof(std::int32_t))
         {
             std::int32_t const ptr_move_32 = (std::int32_t)ptr_move;
-            copy_bytes_of_value((std::uint8_t const *)&ptr_move, sizeof(ptr_move_32), sala_constant);
+            copy_bytes_of_value((std::uint8_t const *)&ptr_move_32, sizeof(ptr_move_32), sala_constant);
         }
         else
         {
-            ASSUMPTION(sizeof(void*) == sizeof(ptr_move));
+            ASSUMPTION(module().getDataLayout().getPointerSize() == sizeof(ptr_move));
             copy_bytes_of_value((std::uint8_t const *)&ptr_move, sizeof(ptr_move), sala_constant);
         }
         it = moveptr_constants_.insert({ ptr_move, sala_constant.index() }).first;
