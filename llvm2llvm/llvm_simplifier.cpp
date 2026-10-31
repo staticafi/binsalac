@@ -30,6 +30,7 @@
 #include <llvm/Support/raw_os_ostream.h>
 #include <llvm/Transforms/Utils.h>
 #include <llvm/Transforms/Utils/BasicBlockUtils.h>
+#include <llvm/Transforms/Utils/Local.h>
 #include <llvm/DebugInfo/DIContext.h>
 #if COMPILER() == COMPILER_VC()
 #    pragma warning(pop)
@@ -191,6 +192,40 @@ static void eliminate_select_instructions(llvm::Module* const llvm_module)
 }
 
 
+static void discard_unused_function_results(llvm::Module* const llvm_module)
+{
+    for (auto& function : *llvm_module)
+    {
+        if (function.isDeclaration() || function.getReturnType()->isVoidTy() || function.use_empty())
+            continue;
+
+        bool all_callers_discard_result = true;
+        for (auto const* user : function.users())
+        {
+            auto const* call = llvm::dyn_cast<llvm::CallInst>(user);
+            if (call == nullptr || call->getCalledFunction() != &function || !call->use_empty())
+            {
+                all_callers_discard_result = false;
+                break;
+            }
+        }
+
+        if (!all_callers_discard_result)
+            continue;
+
+        for (auto& block : function)
+        {
+            auto* ret = llvm::dyn_cast<llvm::ReturnInst>(block.getTerminator());
+            if (ret == nullptr || ret->getReturnValue() == nullptr)
+                continue;
+
+            auto* value = ret->getReturnValue();
+            ret->setOperand(0, llvm::UndefValue::get(value->getType()));
+            llvm::RecursivelyDeleteTriviallyDeadInstructions(value);
+        }
+    }
+}
+
 void simplify_llvm_file(std::filesystem::path const& src_llvm_file_pathname, std::filesystem::path const& dst_llvm_file_pathname)
 {
     TMPROF_BLOCK();
@@ -199,7 +234,7 @@ void simplify_llvm_file(std::filesystem::path const& src_llvm_file_pathname, std
     llvm::LLVMContext C;
     std::unique_ptr<llvm::Module> llvm_module;
     {
- 
+
         llvm_module = llvm::parseIRFile(src_llvm_file_pathname.string(), D, C);
         if (llvm_module == nullptr)
         {
@@ -213,6 +248,7 @@ void simplify_llvm_file(std::filesystem::path const& src_llvm_file_pathname, std
     eliminate_switch_instructions(llvm_module.get());
     eliminate_const_expressions(llvm_module.get());
     eliminate_select_instructions(llvm_module.get());
+    discard_unused_function_results(llvm_module.get());
 
     {
         std::ofstream ostr(dst_llvm_file_pathname.string().c_str(), std::ios::binary);

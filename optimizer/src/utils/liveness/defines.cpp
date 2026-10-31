@@ -1,5 +1,7 @@
 #include <optimizer/utils/liveness/defines.hpp>
 
+#include <optimizer/programIR/function_ir.hpp>
+#include <optimizer/programIR/program_ir.hpp>
 #include <optimizer/programIR/variable_ir.hpp>
 #include <utility/assumptions.hpp>
 
@@ -85,6 +87,26 @@ inline bool writes_constant_storage(const program::InstructionIR_sptr& instructi
     }
 
     return false;
+}
+
+bool reads_indirect_memory(const sala::Instruction::Opcode opcode) noexcept
+{
+    using Op = sala::Instruction::Opcode;
+    switch (opcode)
+    {
+    case Op::LOAD:
+    case Op::CALL:
+    case Op::MEMCPY:
+    case Op::MEMMOVE:
+    case Op::VA_START:
+    case Op::VA_END:
+    case Op::VA_ARG:
+    case Op::VA_COPY:
+        return true;
+
+    default:
+        return false;
+    }
 }
 
 } // namespace
@@ -227,8 +249,39 @@ bool is_pure_dead_def_candidate(const program::InstructionIR_sptr& instruction)
     }
 }
 
-void collect_uses_and_defs(const program::InstructionIR_sptr& instruction, LiveSet& uses,
-                           LiveSet& defs)
+LiveSet memory_read_set(const program::FunctionIR& function)
+{
+    const auto program = function.get_program();
+    ASSUMPTION(program != nullptr);
+
+    LiveSet memory;
+    memory.reserve(function.get_parameters().size()
+                 + function.get_local_variables().size()
+                 + program->get_static_vars().size()
+                 + program->get_constants().size());
+
+    for (const auto& parameter : function.get_parameters())
+    {
+        memory.insert(parameter.get());
+    }
+    for (const auto& local : function.get_local_variables())
+    {
+        memory.insert(local.get());
+    }
+    for (const auto& variable : program->get_static_vars())
+    {
+        memory.insert(variable.get());
+    }
+    for (const auto& constant : program->get_constants())
+    {
+        memory.insert(constant.get());
+    }
+
+    return memory;
+}
+
+void collect_uses_and_defs(const program::InstructionIR_sptr& instruction,
+                           const LiveSet& memory, LiveSet& uses, LiveSet& defs)
 {
     ASSUMPTION(instruction != nullptr);
 
@@ -249,10 +302,16 @@ void collect_uses_and_defs(const program::InstructionIR_sptr& instruction, LiveS
             insert_if_trackable(uses, ops[i]);
         }
     }
+
+    if (reads_indirect_memory(opcode))
+    {
+        uses.union_with(memory);
+    }
 }
 
 void apply_backward_transfer(const program::InstructionIR_sptr& instruction,
-                             const LiveSet& live_after, LiveSet& live_before)
+                             const LiveSet& memory, const LiveSet& live_after,
+                             LiveSet& live_before)
 {
     ASSUMPTION(instruction != nullptr);
 
@@ -260,7 +319,7 @@ void apply_backward_transfer(const program::InstructionIR_sptr& instruction,
 
     LiveSet uses;
     LiveSet defs;
-    collect_uses_and_defs(instruction, uses, defs);
+    collect_uses_and_defs(instruction, memory, uses, defs);
 
     for (const auto& def : defs)
     {
@@ -287,20 +346,25 @@ bool is_instruction_removable(const program::InstructionIR_sptr& instruction,
         return false;
     }
 
-    LiveSet uses;
-    LiveSet defs;
-    collect_uses_and_defs(instruction, uses, defs);
+    bool has_def = false;
+    const auto opcode = instruction->get_opcode();
+    const auto& ops   = instruction->get_operands();
 
-    ASSUMPTION(!defs.empty());
-
-    for (const auto& def : defs)
+    for (std::size_t i = 0; i < ops.size(); ++i)
     {
-        if (live_after.contains(def))
+        if (!is_written_operand(opcode, i) || !is_trackable_operand(ops[i]))
+        {
+            continue;
+        }
+
+        has_def = true;
+        if (live_after.contains(ops[i]))
         {
             return false;
         }
     }
 
+    ASSUMPTION(has_def);
     return true;
 }
 

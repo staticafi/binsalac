@@ -44,6 +44,7 @@ LivenessQueryFunction::LivenessQueryFunction(program::FunctionIR_csptr function)
     program_keepalive_ = function_->get_program();
     ASSUMPTION(program_keepalive_ != nullptr);
 
+    memory_ = utils::memory_read_set(*function_);
     cache_.bb = nullptr;
     cache_.instruction_liveness.clear();
 }
@@ -95,7 +96,7 @@ void LivenessQueryFunction::rebuild_basic_block_cache(
         ASSUMPTION(*it != nullptr);
 
         utils::LiveSet live_before;
-        utils::apply_backward_transfer(*it, live_after, live_before);
+        utils::apply_backward_transfer(*it, memory_, live_after, live_before);
 
         cache_.instruction_liveness.emplace(it->get(), CachedInstructionLiveness{
                                                                .live_before = live_before,

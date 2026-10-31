@@ -65,6 +65,7 @@ std::size_t pop_worklist(std::queue<std::size_t>& worklist, std::vector<bool>& i
 }
 
 void update_removable_instruction_set(const program::InstructionIR_sptr&  instruction,
+                                      const utils::LiveSet&               memory,
                                       utils::LiveSet&                     live,
                                       metadata::liveness::BasicBlockMeta& bb_meta)
 {
@@ -76,7 +77,7 @@ void update_removable_instruction_set(const program::InstructionIR_sptr&  instru
     }
 
     utils::LiveSet live_before;
-    utils::apply_backward_transfer(instruction, live, live_before);
+    utils::apply_backward_transfer(instruction, memory, live, live_before);
     live = std::move(live_before);
 }
 
@@ -84,7 +85,8 @@ class FunctionContext
 {
   public:
     explicit FunctionContext(program::FunctionIR_sptr function)
-        : function_{std::move(function)}, cfg_{function_}
+        : function_{std::move(function)}, cfg_{function_},
+          memory_{utils::memory_read_set(*function_)}
     {
         ASSUMPTION(function_ != nullptr);
     }
@@ -95,6 +97,7 @@ class FunctionContext
 
         init_data();
         solve();
+        live_in_.clear();
         materialize();
 
         LOG(LSL_DEBUG, me() << info() << "Done function context");
@@ -154,7 +157,7 @@ class FunctionContext
 
         for (const auto& instruction : cfg_.block(block)->get_instructions())
         {
-            utils::collect_uses_and_defs(instruction, uses, defs);
+            utils::collect_uses_and_defs(instruction, memory_, uses, defs);
             add_block_uses_before_defs(uses, block_use, block_def);
             add_block_defs(defs, block_def);
         }
@@ -226,10 +229,7 @@ class FunctionContext
 
     void add_successor_live_in(std::size_t succ, utils::LiveSet& live_out) const
     {
-        for (const auto& operand : live_in_[succ])
-        {
-            live_out.insert(operand);
-        }
+        live_out.union_with(live_in_[succ]);
     }
 
     utils::LiveSet compute_live_in(std::size_t block, const utils::LiveSet& live_out) const
@@ -302,7 +302,7 @@ class FunctionContext
     void materialize_block(std::size_t block)
     {
         auto bb_meta      = std::make_unique<metadata::liveness::BasicBlockMeta>();
-        bb_meta->live_out = live_out_[block];
+        bb_meta->live_out = std::move(live_out_[block]);
         bb_meta->removable_instructions.clear();
 
         compute_removable_instructions(block, *bb_meta);
@@ -319,13 +319,14 @@ class FunctionContext
 
         for (auto it = instructions.rbegin(); it != instructions.rend(); ++it)
         {
-            update_removable_instruction_set(*it, live, bb_meta);
+            update_removable_instruction_set(*it, memory_, live, bb_meta);
         }
     }
 
   private:
     program::FunctionIR_sptr      function_;
     utils::view::FlattenedCFGView cfg_;
+    utils::LiveSet                memory_;
 
     std::vector<utils::LiveSet> block_use_;
     std::vector<utils::LiveSet> block_def_;
