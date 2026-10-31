@@ -65,6 +65,7 @@ class LivenessQueryFunction
   private:
     program::ProgramIR_csptr  program_keepalive_;
     program::FunctionIR_csptr function_;
+    optimizer::utils::liveness::LiveSet memory_;
 
     mutable Cache cache_;
 };

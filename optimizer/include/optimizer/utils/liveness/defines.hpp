@@ -18,11 +18,14 @@ bool has_observable_side_effects(const program::InstructionIR_sptr& instruction)
 
 bool is_pure_dead_def_candidate(const program::InstructionIR_sptr& instruction);
 
-void collect_uses_and_defs(const program::InstructionIR_sptr& instruction, LiveSet& uses,
-                           LiveSet& defs);
+LiveSet memory_read_set(const program::FunctionIR& function);
+
+void collect_uses_and_defs(const program::InstructionIR_sptr& instruction,
+                           const LiveSet& memory, LiveSet& uses, LiveSet& defs);
 
 void apply_backward_transfer(const program::InstructionIR_sptr& instruction,
-                             const LiveSet& live_after, LiveSet& live_before);
+                             const LiveSet& memory, const LiveSet& live_after,
+                             LiveSet& live_before);
 
 bool is_instruction_removable(const program::InstructionIR_sptr& instruction,
                               const LiveSet&                     live_after);
