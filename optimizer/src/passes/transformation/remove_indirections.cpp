@@ -3,8 +3,10 @@
 #include <optimizer/metadata/points_to.hpp>
 #include <optimizer/pipeline/pass_names.hpp>
 #include <optimizer/programIR/basic_block_ir.hpp>
+#include <optimizer/programIR/constant_ir.hpp>
 #include <optimizer/programIR/function_ir.hpp>
 #include <optimizer/programIR/instruction_ir.hpp>
+#include <optimizer/programIR/variable_ir.hpp>
 #include <optimizer/query/points_to_query.hpp>
 #include <optimizer/query/translation_query.hpp>
 
@@ -172,6 +174,11 @@ class FunctionContext
             return;
         }
 
+        if (cannot_rewrite_as_copy(instruction, *target_operand))
+        {
+            return;
+        }
+
         PendingTransform to_transform;
         to_transform.instruction      = instruction;
         to_transform.indirection_iter = indirect_operand_iter;
@@ -184,6 +191,39 @@ class FunctionContext
     query::PointsToQueryFunction function_query_;
 
     std::vector<PendingTransform> to_transform_;
+
+    bool cannot_rewrite_as_copy(const program::InstructionIR_sptr& instruction,
+                                const program::OperandIR_sptr& target_operand)
+    {
+        const bool is_load = instruction->get_opcode() == sala::Instruction::Opcode::LOAD;
+        const auto& accessed_operand = instruction->get_operands().at(is_load ? 0 : 1);
+
+        const auto* accessed_variable = std::get_if<program::VariableIR_raw>(&accessed_operand);
+        const auto* accessed_constant = std::get_if<program::ConstantIR_raw>(&accessed_operand);
+
+        if (accessed_variable == nullptr && accessed_constant == nullptr)
+        {
+            return true;
+        }
+
+        const auto accessed_width = accessed_variable != nullptr
+            ? (*accessed_variable)->get_num_bytes()
+            : (*accessed_constant)->get_bytes().size();
+
+        const auto* target_variable = std::get_if<program::VariableIR_sptr>(&target_operand);
+        if (target_variable)
+        {
+            return accessed_width != (*target_variable)->get_num_bytes();
+        }
+
+        const auto* target_constant = std::get_if<program::ConstantIR_sptr>(&target_operand);
+        if (target_constant)
+        {
+            return accessed_width != (*target_constant)->get_bytes().size();
+        }
+
+        return true;
+    }
 };
 
 class Impl
