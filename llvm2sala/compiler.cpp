@@ -441,7 +441,7 @@ void Compiler::run()
     for (auto global_it = module().global_begin(); global_it != module().global_end(); ++global_it)
     {
         auto& llvm_static = *global_it;
-        if (!llvm_static.isConstant())
+        if (!llvm_static.isConstant() || llvm_static.isDeclaration())
         {
             ASSUMPTION(llvm_static.getType()->isPointerTy());
 
