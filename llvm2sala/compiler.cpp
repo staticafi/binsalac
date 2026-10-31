@@ -14,6 +14,7 @@
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Instruction.h>
+#include <llvm/IR/InlineAsm.h>
 #include <llvm/IR/Value.h>
 #include <llvm/IR/GlobalValue.h>
 #include <llvm/IR/Type.h>
@@ -40,6 +41,7 @@
 #include <memory>
 #include <sstream>
 #include <iostream>
+#include <stdexcept>
 
 
 static inline void push_back_operand(sala::Instruction& sala_instruction, Compiler::MemoryObject const& mo)
@@ -1935,6 +1937,9 @@ void Compiler::compile_instruction_insertvalue(llvm::InsertValueInst& llvm_instr
 
 void Compiler::compile_instruction_call(llvm::CallInst& llvm_instruction, sala::Instruction& sala_instruction)
 {
+    if (llvm::isa<llvm::InlineAsm>(llvm_instruction.getCalledOperand()))
+        throw std::runtime_error("Cannot lower inline assembly call: " + llvm_to_str(&llvm_instruction));
+
     auto const sala_instruction_back_mapping{ sala_instruction.source_back_mapping() };
     auto opcode { sala::Instruction::Opcode::CALL };
 
