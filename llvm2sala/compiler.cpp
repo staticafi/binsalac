@@ -1140,64 +1140,24 @@ void Compiler::compile_instruction_store(llvm::StoreInst& llvm_instruction, sala
         if (used_bits < all_bits)
         {
             auto const sala_instruction_back_mapping{ sala_instruction.source_back_mapping() };
-
-            std::uint64_t const  mask{ make_clear_mask(used_bits, all_bits) };
-            std::uint64_t const  mask_inv{ ~mask };
+            std::uint64_t const mask{ make_clear_mask(used_bits, all_bits) };
 
             MemoryObject const var_mo_value{ compiled_function()->push_back_local_variable().index(), sala::Instruction::Descriptor::LOCAL };
             compiled_function()->last_local_variable_ref().set_num_bytes(all_bits / 8U);
             compiled_function()->last_local_variable_ref().source_back_mapping() = sala_instruction_back_mapping;
 
-            sala_instruction.set_opcode(sala::Instruction::Opcode::COPY);
+            // LLVM stores an integer value into its complete byte-sized storage.
+            // Unused high bits are padding, not previous destination contents.
+            sala_instruction.set_opcode(sala::Instruction::Opcode::AND);
             push_back_operand(sala_instruction, var_mo_value);
             push_back_operand(sala_instruction, memory_object(llvm_instruction.getOperand(0)));
+            sala_instruction.push_back_operand(numeric_constant_index_impl((std::uint8_t const*)&mask, all_bits / 8U), sala::Instruction::Descriptor::CONSTANT);
 
-            {
-                auto& instr = compiled_basic_block()->push_back_instruction();
-                instr.source_back_mapping() = sala_instruction_back_mapping;
-                instr.set_opcode(sala::Instruction::Opcode::AND);
-                push_back_operand(instr, var_mo_value);
-                push_back_operand(instr, var_mo_value);
-                instr.push_back_operand(numeric_constant_index_impl((std::uint8_t const*)&mask, all_bits / 8U), sala::Instruction::Descriptor::CONSTANT);
-            }
-
-            MemoryObject const var_mo_loaded{ compiled_function()->push_back_local_variable().index(), sala::Instruction::Descriptor::LOCAL };
-            compiled_function()->last_local_variable_ref().set_num_bytes(all_bits / 8U);
-            compiled_function()->last_local_variable_ref().source_back_mapping() = sala_instruction_back_mapping;
-
-            {
-                auto& instr = compiled_basic_block()->push_back_instruction();
-                instr.source_back_mapping() = sala_instruction_back_mapping;
-                instr.set_opcode(sala::Instruction::Opcode::LOAD);
-                push_back_operand(instr, var_mo_loaded);
-                push_back_operand(instr, memory_object(llvm_instruction.getOperand(1)));
-            }
-
-            {
-                auto& instr = compiled_basic_block()->push_back_instruction();
-                instr.source_back_mapping() = sala_instruction_back_mapping;
-                instr.set_opcode(sala::Instruction::Opcode::AND);
-                push_back_operand(instr, var_mo_loaded);
-                push_back_operand(instr, var_mo_loaded);
-                instr.push_back_operand(numeric_constant_index_impl((std::uint8_t const*)&mask_inv, all_bits / 8U), sala::Instruction::Descriptor::CONSTANT);
-            }
-
-            {
-                auto& instr = compiled_basic_block()->push_back_instruction();
-                instr.source_back_mapping() = sala_instruction_back_mapping;
-                instr.set_opcode(sala::Instruction::Opcode::OR);
-                push_back_operand(instr, var_mo_value);
-                push_back_operand(instr, var_mo_value);
-                push_back_operand(instr, var_mo_loaded);
-            }
-
-            {
-                auto& instr = compiled_basic_block()->push_back_instruction();
-                instr.source_back_mapping() = sala_instruction_back_mapping;
-                instr.set_opcode(sala::Instruction::Opcode::STORE);
-                push_back_operand(instr, memory_object(llvm_instruction.getOperand(1)));
-                push_back_operand(instr, var_mo_value);
-            }
+            auto& instr = compiled_basic_block()->push_back_instruction();
+            instr.source_back_mapping() = sala_instruction_back_mapping;
+            instr.set_opcode(sala::Instruction::Opcode::STORE);
+            push_back_operand(instr, memory_object(llvm_instruction.getOperand(1)));
+            push_back_operand(instr, var_mo_value);
         }
         else
         {
