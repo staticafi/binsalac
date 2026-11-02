@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <initializer_list>
 #include <iostream>
+#include <iterator>
 #include <utility>
 #include <vector>
 
@@ -186,7 +187,7 @@ class SparseSet
         }
 
         storage_type merged;
-        merged.reserve(data_.size() + other.data_.size());
+        merged.reserve(union_size_(other));
 
         auto lhs = data_.begin();
         auto rhs = other.data_.begin();
@@ -257,6 +258,35 @@ class SparseSet
     }
 
   private:
+    [[nodiscard]] size_type union_size_(const SparseSet& other) const
+    {
+        size_type result = 0;
+        auto lhs = data_.begin();
+        auto rhs = other.data_.begin();
+
+        while (lhs != data_.end() && rhs != other.data_.end())
+        {
+            ++result;
+            if (cmp_(*lhs, *rhs))
+            {
+                ++lhs;
+            }
+            else if (cmp_(*rhs, *lhs))
+            {
+                ++rhs;
+            }
+            else
+            {
+                ++lhs;
+                ++rhs;
+            }
+        }
+
+        result += static_cast<size_type>(std::distance(lhs, data_.end()));
+        result += static_cast<size_type>(std::distance(rhs, other.data_.end()));
+        return result;
+    }
+
     storage_type data_{};
     Compare      cmp_{};
 
