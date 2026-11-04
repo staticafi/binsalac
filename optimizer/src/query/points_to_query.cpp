@@ -97,7 +97,7 @@ PointsToResult make_result_from_value(const MayValue* value, std::optional<Targe
 
     result.poisoned = false;
     result.unique   = std::move(unqiue);
-    result.may      = value->targets;
+    result.may      = value->targets();
     return result;
 }
 
