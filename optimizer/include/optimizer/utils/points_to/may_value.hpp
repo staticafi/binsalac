@@ -4,6 +4,7 @@
 #include <compare>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 
 #include <optimizer/utils/points_to/nodes.hpp>
@@ -15,8 +16,7 @@ using MayTargetSet = optimizer::utils::SparseSet<Target>;
 
 struct MayValue
 {
-    bool         is_top{false};
-    MayTargetSet targets{};
+    bool is_top{false};
 
     static MayValue top() noexcept;
     static MayValue singleton(Target target);
@@ -28,12 +28,11 @@ struct MayValue
     void make_top() noexcept;
 
     void insert(const Target& target);
-    void insert(Target&& target);
 
     void join_with(const MayValue& other);
 
-    [[nodiscard]] MayTargetSet::iterator       begin() noexcept;
-    [[nodiscard]] MayTargetSet::iterator       end() noexcept;
+    [[nodiscard]] const MayTargetSet& targets() const noexcept;
+
     [[nodiscard]] MayTargetSet::const_iterator begin() const noexcept;
     [[nodiscard]] MayTargetSet::const_iterator end() const noexcept;
     [[nodiscard]] MayTargetSet::const_iterator cbegin() const noexcept;
@@ -41,6 +40,13 @@ struct MayValue
 
     friend bool          operator==(const MayValue& a, const MayValue& b);
     friend std::ostream& operator<<(std::ostream& os, const MayValue& obj);
+
+  private:
+    MayTargetSet& writable_targets();
+
+    // CFG snapshots usually differ in only a few cells. Sharing the remaining
+    // payloads avoids allocating a target vector for every copied cell.
+    std::shared_ptr<MayTargetSet> targets_;
 };
 
 [[nodiscard]] bool contains_objectId(const MayTargetSet& set, objectId id) noexcept;
