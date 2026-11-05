@@ -104,6 +104,8 @@ class FunctionContext
     {
         LOG(LSL_DEBUG, me() << info() << "Materializing metadata");
 
+        metadata_states_ = std::make_shared<utils::BasicBlockMayStateStore>();
+
         for (std::size_t block = 0; block < cfg_.size(); ++block)
         {
             MayAnalysisState may_in{};
@@ -176,7 +178,7 @@ class FunctionContext
 
     void init_states()
     {
-        out_may_.reset(cfg_.size());
+        out_may_.resize(cfg_.size());
         has_out_.assign(cfg_.size(), false);
         in_may_scratch_.clear();
     }
@@ -278,13 +280,11 @@ class FunctionContext
 
     bool block_out_changed(std::size_t block, const MayAnalysisState& may) const
     {
-        return !has_out_[block] || !out_may_.equals(block, may);
+        return !has_out_[block] || out_may_[block] != may;
     }
 
     void build_in_state(std::size_t block, MayAnalysisState& may_in) const
     {
-        may_in.clear();
-
         bool initialized = false;
         initialize_entry_seed_if_needed(block, may_in, initialized);
         merge_available_predecessors(block, may_in, initialized);
@@ -333,7 +333,7 @@ class FunctionContext
                 continue;
             }
 
-            merge_state(may_in, out_may_.get(pred), initialized);
+            merge_state(may_in, out_may_[pred], initialized);
         }
     }
 
@@ -376,9 +376,8 @@ class FunctionContext
 
     void commit_block_out_state(std::size_t block, MayAnalysisState& may)
     {
-        out_may_.set(block, may);
+        std::swap(out_may_[block], may);
         has_out_[block] = true;
-        may.clear();
     }
 
     void enqueue_successors(std::size_t block, std::queue<std::size_t>& worklist,
@@ -399,7 +398,7 @@ class FunctionContext
     void attach_block_points_to_metadata(std::size_t block, MayAnalysisState may_in)
     {
         auto bb_points_to_meta       = std::make_unique<metadata::points_to::BasicBlockMeta>();
-        bb_points_to_meta->may_in_id = out_may_.store()->intern(std::move(may_in));
+        bb_points_to_meta->may_in_id = metadata_states_->intern(std::move(may_in));
         cfg_.block(block)->get_metadata().set(std::move(bb_points_to_meta));
     }
 
@@ -407,14 +406,14 @@ class FunctionContext
     {
         auto function_meta                = std::make_unique<metadata::points_to::FunctionMeta>();
         function_meta->local_objects      = std::move(local_objects_);
-        function_meta->bb_may_state_store = out_may_.store();
+        function_meta->bb_may_state_store = metadata_states_;
         function_->get_metadata().set(std::move(function_meta));
     }
 
     MayAnalysisState export_exit_block_to_global_state(std::size_t exit_block) const
     {
         MayAnalysisState exported{};
-        const auto&      out_may = out_may_.get(exit_block);
+        const auto& out_may = out_may_[exit_block];
 
         if (out_may.poisoned)
         {
@@ -563,7 +562,8 @@ class FunctionContext
 
     utils::SparseSet<objectId> assumed_ptr_params_;
 
-    utils::BasicBlockMayStateSlots out_may_;
+    std::vector<MayAnalysisState>                    out_may_;
+    std::shared_ptr<utils::BasicBlockMayStateStore> metadata_states_;
 
     MayAnalysisState      in_may_scratch_;
     std::vector<objectId> operands_id_scratch_;
