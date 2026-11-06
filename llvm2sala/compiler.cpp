@@ -1092,23 +1092,43 @@ void Compiler::compile_instruction_bitcast(llvm::BitCastInst& llvm_instruction, 
 void Compiler::compile_instruction_load(llvm::LoadInst& llvm_instruction, sala::Instruction& sala_instruction)
 {
     auto& self = memory_object(&llvm_instruction);
+    std::size_t const store_bytes{ module().getDataLayout().getTypeStoreSize(llvm_instruction.getType()) };
+    std::size_t const alloc_bytes{ llvm_sizeof(llvm_instruction.getType(), module()) };
+    auto const sala_instruction_back_mapping{ sala_instruction.source_back_mapping() };
+
+    MemoryObject loaded = self;
+    if (store_bytes < alloc_bytes)
+    {
+        loaded = { compiled_function()->push_back_local_variable().index(), sala::Instruction::Descriptor::LOCAL };
+        compiled_function()->last_local_variable_ref().set_num_bytes(store_bytes);
+        compiled_function()->last_local_variable_ref().source_back_mapping() = sala_instruction_back_mapping;
+    }
 
     sala_instruction.set_opcode(sala::Instruction::Opcode::LOAD);
-    push_back_operand(sala_instruction, self);
+    push_back_operand(sala_instruction, loaded);
     push_back_operand(sala_instruction, memory_object(llvm_instruction.getOperand(0)));
 
+    if (store_bytes < alloc_bytes)
+    {
+        auto& instr = compiled_basic_block()->push_back_instruction();
+        instr.source_back_mapping() = sala_instruction_back_mapping;
+        instr.set_opcode(sala::Instruction::Opcode::EXTEND);
+        instr.set_modifier(sala::Instruction::Modifier::UNSIGNED);
+        push_back_operand(instr, self);
+        push_back_operand(instr, loaded);
+    }
+
     std::size_t const  used_bits{ llvm_num_storage_bits(llvm_instruction.getType(), module()) };
-    std::size_t const  all_bits{ 8U * llvm_sizeof(llvm_instruction.getType(), module()) };
+    std::size_t const  all_bits{ 8U * alloc_bytes };
     if (used_bits < all_bits)
     {
-        auto const sala_instruction_back_mapping{ sala_instruction.source_back_mapping() };
         std::uint64_t const  mask{ make_clear_mask(used_bits, all_bits) };
         auto& instr = compiled_basic_block()->push_back_instruction();
         instr.source_back_mapping() = sala_instruction_back_mapping;
         instr.set_opcode(sala::Instruction::Opcode::AND);
         push_back_operand(instr, self);
         push_back_operand(instr, self);
-        instr.push_back_operand(numeric_constant_index_impl((std::uint8_t const*)&mask, all_bits / 8U), sala::Instruction::Descriptor::CONSTANT);
+        instr.push_back_operand(numeric_constant_index_impl((std::uint8_t const*)&mask, alloc_bytes), sala::Instruction::Descriptor::CONSTANT);
     }
 }
 
@@ -1136,19 +1156,29 @@ void Compiler::compile_instruction_store(llvm::StoreInst& llvm_instruction, sala
     else
     {
         std::size_t const  used_bits{ llvm_num_storage_bits(llvm_instruction.getOperand(0)->getType(), module()) };
-        std::size_t const  all_bits{ 8U * llvm_sizeof(llvm_instruction.getOperand(0)->getType(), module()) };
+        std::size_t const  alloc_bytes{ llvm_sizeof(llvm_instruction.getOperand(0)->getType(), module()) };
+        std::size_t const  all_bits{ 8U * alloc_bytes };
         if (used_bits < all_bits)
         {
             auto const sala_instruction_back_mapping{ sala_instruction.source_back_mapping() };
 
             std::uint64_t const  mask{ make_clear_mask(used_bits, all_bits) };
-            std::uint64_t const  mask_inv{ ~mask };
+            std::size_t const store_bytes{ module().getDataLayout().getTypeStoreSize(llvm_instruction.getOperand(0)->getType()) };
 
             MemoryObject const var_mo_value{ compiled_function()->push_back_local_variable().index(), sala::Instruction::Descriptor::LOCAL };
-            compiled_function()->last_local_variable_ref().set_num_bytes(all_bits / 8U);
+            compiled_function()->last_local_variable_ref().set_num_bytes(store_bytes);
             compiled_function()->last_local_variable_ref().source_back_mapping() = sala_instruction_back_mapping;
 
-            sala_instruction.set_opcode(sala::Instruction::Opcode::COPY);
+            if (store_bytes == alloc_bytes)
+            {
+                sala_instruction.set_opcode(sala::Instruction::Opcode::COPY);
+            }
+            else
+            {
+                sala_instruction.set_opcode(sala::Instruction::Opcode::TRUNCATE);
+                sala_instruction.set_modifier(sala::Instruction::Modifier::UNSIGNED);
+            }
+
             push_back_operand(sala_instruction, var_mo_value);
             push_back_operand(sala_instruction, memory_object(llvm_instruction.getOperand(0)));
 
@@ -1158,37 +1188,7 @@ void Compiler::compile_instruction_store(llvm::StoreInst& llvm_instruction, sala
                 instr.set_opcode(sala::Instruction::Opcode::AND);
                 push_back_operand(instr, var_mo_value);
                 push_back_operand(instr, var_mo_value);
-                instr.push_back_operand(numeric_constant_index_impl((std::uint8_t const*)&mask, all_bits / 8U), sala::Instruction::Descriptor::CONSTANT);
-            }
-
-            MemoryObject const var_mo_loaded{ compiled_function()->push_back_local_variable().index(), sala::Instruction::Descriptor::LOCAL };
-            compiled_function()->last_local_variable_ref().set_num_bytes(all_bits / 8U);
-            compiled_function()->last_local_variable_ref().source_back_mapping() = sala_instruction_back_mapping;
-
-            {
-                auto& instr = compiled_basic_block()->push_back_instruction();
-                instr.source_back_mapping() = sala_instruction_back_mapping;
-                instr.set_opcode(sala::Instruction::Opcode::LOAD);
-                push_back_operand(instr, var_mo_loaded);
-                push_back_operand(instr, memory_object(llvm_instruction.getOperand(1)));
-            }
-
-            {
-                auto& instr = compiled_basic_block()->push_back_instruction();
-                instr.source_back_mapping() = sala_instruction_back_mapping;
-                instr.set_opcode(sala::Instruction::Opcode::AND);
-                push_back_operand(instr, var_mo_loaded);
-                push_back_operand(instr, var_mo_loaded);
-                instr.push_back_operand(numeric_constant_index_impl((std::uint8_t const*)&mask_inv, all_bits / 8U), sala::Instruction::Descriptor::CONSTANT);
-            }
-
-            {
-                auto& instr = compiled_basic_block()->push_back_instruction();
-                instr.source_back_mapping() = sala_instruction_back_mapping;
-                instr.set_opcode(sala::Instruction::Opcode::OR);
-                push_back_operand(instr, var_mo_value);
-                push_back_operand(instr, var_mo_value);
-                push_back_operand(instr, var_mo_loaded);
+                instr.push_back_operand(numeric_constant_index_impl((std::uint8_t const*)&mask, store_bytes), sala::Instruction::Descriptor::CONSTANT);
             }
 
             {
@@ -1448,7 +1448,8 @@ void Compiler::compile_instruction_cast(llvm::TruncInst& llvm_instruction, sala:
     push_back_operand(sala_instruction, memory_object(llvm_instruction));
     push_back_operand(sala_instruction, memory_object(llvm_instruction.getOperand(0)));
 
-    if (llvm_sizeof(llvm_instruction.getType(), module()) == llvm_sizeof(llvm_instruction.getOperand(0)->getType(), module()))
+    std::size_t const alloc_bytes{ llvm_sizeof(llvm_instruction.getType(), module()) };
+    if (alloc_bytes == llvm_sizeof(llvm_instruction.getOperand(0)->getType(), module()))
     {
         if (llvm_instruction.getType()->isIntegerTy(1) && llvm_instruction.getOperand(0)->getType()->isIntegerTy(8))
         {
@@ -1458,11 +1459,11 @@ void Compiler::compile_instruction_cast(llvm::TruncInst& llvm_instruction, sala:
         else
         {
             std::size_t const  used_bits{ llvm_num_storage_bits(llvm_instruction.getType(), module()) };
-            std::size_t const  all_bits{ 8U * llvm_sizeof(llvm_instruction.getType(), module()) };
+            std::size_t const  all_bits{ 8U * alloc_bytes };
             ASSUMPTION(all_bits <= 64ULL);
             std::uint64_t const  mask{ make_clear_mask(used_bits, all_bits) };
             sala_instruction.set_opcode(sala::Instruction::Opcode::AND);
-            sala_instruction.push_back_operand(numeric_constant_index_impl((std::uint8_t const*)&mask, all_bits / 8U), sala::Instruction::Descriptor::CONSTANT);
+            sala_instruction.push_back_operand(numeric_constant_index_impl((std::uint8_t const*)&mask, alloc_bytes), sala::Instruction::Descriptor::CONSTANT);
         }
     }
     else
