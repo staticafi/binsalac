@@ -147,7 +147,7 @@ void compile_llvm_file(std::filesystem::path const& llvm_file_pathname, sala::Pr
     llvm::LLVMContext C;
     std::unique_ptr<llvm::Module> M;
     {
- 
+
         M = llvm::parseIRFile(llvm_file_pathname.string(), D, C);
         if (M == nullptr)
         {
@@ -205,7 +205,7 @@ Compiler::MemoryObject const& Compiler::register_variable(llvm::Value* const llv
             sala_variable.index(),
             sala_variable.region() == sala::Variable::Region::STATIC ?
                 sala::Instruction::Descriptor::STATIC : sala::Instruction::Descriptor::LOCAL
-        } 
+        }
     });
     ASSUMPTION(it_and_state.second);
     return it_and_state.first->second;
@@ -354,7 +354,7 @@ Compiler::MemoryObject const& Compiler::memory_object(llvm::Value* const llvm_va
                         ASSUMPTION(phi_nodes.empty());
                         for (auto it = llvm_instructions.rbegin(); it != llvm_instructions.rend(); ++it)
                         {
-                            (*it)->replaceAllUsesWith(llvm::UndefValue::get((*it)->getType())); 
+                            (*it)->replaceAllUsesWith(llvm::UndefValue::get((*it)->getType()));
                             (*it)->dropAllReferences();
                             (*it)->deleteValue();
                         }
@@ -384,7 +384,7 @@ Compiler::MemoryObject const& Compiler::memory_object(llvm::Value* const llvm_va
                 set_compiled_function(old_compiled_function);
                 set_compiled_basic_block(old_compiled_basic_block);
             }
-    
+
             return created_memory_objects_.find(llvm_value)->second;
         }
         return register_variable(llvm_value, compiled_function()->push_back_local_variable());
