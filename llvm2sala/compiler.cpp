@@ -81,6 +81,32 @@ static std::string to_hex_string(std::uint8_t const* const value_ptr, std::size_
 }
 
 
+static bool has_zero_byte_representation(llvm::Type* const type, llvm::DataLayout const& layout)
+{
+    if (auto array = llvm::dyn_cast<llvm::ArrayType>(type))
+        return has_zero_byte_representation(array->getElementType(), layout);
+
+    if (auto structure = llvm::dyn_cast<llvm::StructType>(type))
+    {
+        if (layout.getStructLayout(structure)->hasPadding())
+            return false;
+
+        for (auto element : structure->elements())
+        {
+            if (!has_zero_byte_representation(element, layout))
+                return false;
+        }
+
+        return true;
+    }
+
+    if (auto integer = llvm::dyn_cast<llvm::IntegerType>(type))
+        return integer->getBitWidth() <= 8U || integer->getBitWidth() % 8U == 0U;
+
+    return type->isPointerTy() || type->isFloatTy() || type->isDoubleTy();
+}
+
+
 static bool is_nop_in_basic_block(sala::BasicBlock& sala_block, std::uint32_t const start_index = 0U)
 {
     for (auto it = std::next(sala_block.instructions().begin(), start_index); it != sala_block.instructions().end(); ++it)
@@ -570,18 +596,80 @@ void Compiler::run()
 
     // Compile static objects
 
+    MemoryObject aggregate_source_mo{
+        std::numeric_limits<std::uint32_t>::max(),
+        sala::Instruction::Descriptor::LOCAL
+    };
+    auto const aggregate_extent = [this](std::uint64_t const num_bytes) -> MemoryObject
+    {
+        auto const index = module().getDataLayout().getPointerSize() == 4U
+            ? numeric_constant_index(std::uint32_t(num_bytes))
+            : numeric_constant_index(num_bytes);
+        return { index, sala::Instruction::Descriptor::CONSTANT };
+    };
+
     for (auto global_it = module().global_begin(); global_it != module().global_end(); ++global_it)
     {
         auto& llvm_static = *global_it;
         if (!llvm_static.isConstant() && llvm_static.hasInitializer())
         {
-            auto variable_mo = memory_object(llvm_static);
-            auto self_mo{ memory_object(llvm_static) };
-            auto initializer_mo{ memory_object(llvm_static.getInitializer()) };
-            auto& sala_instruction = program().function_ref(program().static_initializer()).basic_block_ref(0U).push_back_instruction();
-            sala_instruction.set_opcode(sala::Instruction::Opcode::STORE);
-            push_back_operand(sala_instruction, self_mo);
-            push_back_operand(sala_instruction, initializer_mo);
+            auto const self_mo{ memory_object(llvm_static) };
+            auto* const initializer = llvm_static.getInitializer();
+            if (initializer->getType()->isAggregateType())
+            {
+                auto const& layout = module().getDataLayout();
+                if (initializer->isNullValue()
+                    && has_zero_byte_representation(initializer->getType(), layout))
+                {
+                    // Do not materialize an aggregate zero constant just to copy it.
+                    MemoryObject const zero_mo{
+                        numeric_constant_index(std::uint8_t(0)),
+                        sala::Instruction::Descriptor::CONSTANT
+                    };
+                    auto const extent_mo = aggregate_extent(llvm_sizeof(initializer->getType(), module()));
+                    auto& instruction = program().function_ref(program().static_initializer())
+                        .basic_block_ref(0U).push_back_instruction();
+                    instruction.set_opcode(sala::Instruction::Opcode::MEMSET);
+                    push_back_operand(instruction, self_mo);
+                    push_back_operand(instruction, zero_mo);
+                    push_back_operand(instruction, extent_mo);
+                }
+                else
+                {
+                    // This emits pointer relocations before the aggregate is copied.
+                    auto const initializer_mo{ memory_object(initializer) };
+                    auto const extent_mo = aggregate_extent(program().constant_ref(initializer_mo.index).num_bytes());
+                    auto& function = program().function_ref(program().static_initializer());
+
+                    if (aggregate_source_mo.index == std::numeric_limits<std::uint32_t>::max())
+                    {
+                        auto& source = function.push_back_local_variable();
+                        source.set_num_bytes(layout.getPointerSize());
+                        aggregate_source_mo.index = source.index();
+                    }
+
+                    auto& block = function.basic_block_ref(0U);
+                    auto& address = block.push_back_instruction();
+                    address.set_opcode(sala::Instruction::Opcode::ADDRESS);
+                    push_back_operand(address, aggregate_source_mo);
+                    push_back_operand(address, initializer_mo);
+
+                    auto& copy = block.push_back_instruction();
+                    copy.set_opcode(sala::Instruction::Opcode::MEMCPY);
+                    push_back_operand(copy, self_mo);
+                    push_back_operand(copy, aggregate_source_mo);
+                    push_back_operand(copy, extent_mo);
+                }
+            }
+            else
+            {
+                auto const initializer_mo{ memory_object(initializer) };
+                auto& instruction = program().function_ref(program().static_initializer())
+                    .basic_block_ref(0U).push_back_instruction();
+                instruction.set_opcode(sala::Instruction::Opcode::STORE);
+                push_back_operand(instruction, self_mo);
+                push_back_operand(instruction, initializer_mo);
+            }
         }
     }
     for (auto it = module().begin(); it != module().end(); ++it)
